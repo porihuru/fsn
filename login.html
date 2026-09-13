@@ -28,6 +28,8 @@
 document.getElementById('login-button').onclick = function () {
     var result = Auth.login(document.getElementById('login-id').value, document.getElementById('login-password').value, document.getElementById('remember').checked);
     if (!result.ok) { document.getElementById('login-error').textContent = result.message; return; }
+    result.user.loginName = document.getElementById('login-id').value;
+    Storage.set('sticky_user', result.user);
     window.location.href = 'index.html';
 };
 </script>

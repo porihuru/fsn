@@ -13,6 +13,7 @@ var SharePoint = (function () {
             if (xhr.readyState !== 4) { return; }
             result = { ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data: null, raw: xhr.responseText };
             try { result.data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch (ignore) { result.data = xhr.responseText; }
+            if (!result.ok && window.ErrorStore) { ErrorStore.add('SharePoint REST', method + ' ' + url + '（HTTP ' + xhr.status + '）', xhr.responseText); }
             if (callback) { callback(result); }
         };
         xhr.send(data ? JSON.stringify(data) : null);
@@ -147,5 +148,22 @@ var StickyGroupsApi = (function () {
             SharePoint.createListItem('StickyGroups', { Title: groupKey, GroupKey: groupKey, DisplayName: groupKey, Enabled: true }, function (created) { if (!created.ok) { callback(created); return; } member(); });
         });
     }
-    return { ensureMembership: ensureMembership };
+    function findMembers(groupKey, callback) {
+        SharePoint.listItems('StickyGroupMembers', "?$select=UserId&$filter=GroupKey eq '" + escapeOData(groupKey) + "' and Enabled eq 1", function (result) {
+            var members = result.ok && result.data && result.data.d ? result.data.d.results : [], index = 0, users = [];
+            function next() {
+                var userId;
+                if (index >= members.length) { callback({ ok: result.ok, users: users }); return; }
+                userId = members[index].UserId;
+                SharePoint.listItems('StickyUsers', "?$select=StickyUserId,DisplayName,PublicKey&$filter=StickyUserId eq '" + escapeOData(userId) + "'", function (userResult) {
+                    var records = userResult.ok && userResult.data && userResult.data.d ? userResult.data.d.results : [];
+                    if (records.length && records[0].PublicKey) { users.push(records[0]); }
+                    index += 1;
+                    next();
+                });
+            }
+            next();
+        });
+    }
+    return { ensureMembership: ensureMembership, findMembers: findMembers };
 }());

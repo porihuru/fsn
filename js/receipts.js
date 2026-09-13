@@ -1,5 +1,6 @@
 function receiptInboxItems() {
-    var user = Storage.get('sticky_user', {}), sent = Storage.get('sticky_sent_notes', []), items = [], i, note;
+    var user = Storage.get('sticky_user', {}), sent = Storage.get('sticky_sent_notes', []), remote = Storage.get('sticky_remote_inbox', []), items = [], i, note;
+    for (i = 0; i < remote.length; i += 1) { items.push(remote[i]); }
     for (i = 0; i < sent.length; i += 1) {
         note = sent[i];
         if (note.recipients && note.recipients.indexOf(user.displayName) !== -1) {
@@ -10,7 +11,7 @@ function receiptInboxItems() {
 }
 
 function markReceiptRead(noteId) {
-    var user = Storage.get('sticky_user', {}), sent = Storage.get('sticky_sent_notes', []), i;
+    var user = Storage.get('sticky_user', {}), sent = Storage.get('sticky_sent_notes', []), remote = Storage.get('sticky_remote_inbox', []), i;
     for (i = 0; i < sent.length; i += 1) {
         if (sent[i].id === noteId || (!sent[i].id && ('legacy-' + i) === noteId)) {
             sent[i].receipts = sent[i].receipts || {};
@@ -21,6 +22,7 @@ function markReceiptRead(noteId) {
             return;
         }
     }
+    for (i = 0; i < remote.length; i += 1) { if (remote[i].id === noteId && remote[i].sharePointRecipient && APP_CONFIG.USE_SHAREPOINT) { SharePoint.update("/_api/web/lists/getbytitle('StickyRecipients')/items(" + remote[i].sharePointRecipient.Id + ')', { IsRead: true, ReadAt: new Date().toISOString() }, '*', function () {}); } }
 }
 
 function renderInbox() {
