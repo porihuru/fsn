@@ -1,0 +1,11 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "社内付箋を Edge で起動",
+      "type": "msedge",
+      "request": "launch",
+      "file": "${workspaceFolder}/login.html"
+    }
+  ]
+}
