@@ -38,13 +38,17 @@ var Fsn = (function () {
         id('note-title').value = value.title || ''; NoteEditor.set(value.content || '', mode === 'read'); id('note-color').value = Util.color(value.color); id('note-due').value = value.due || ''; id('task-state').value = value.status || '未着手';
         id('note-recipient').value = ''; id('recipient-label').style.display = mode === 'send' ? 'block' : 'none';
         id('task-state-label').style.display = mode === 'task' ? 'block' : 'none';
-        id('editor-title').textContent = { read: '読み取り専用', send: '付箋を送る', task: 'タスク', personal: row ? '付箋を編集' : '新しい付箋' }[mode];
+        id('post-category-label').style.display = mode === 'post' ? 'block' : 'none'; id('note-post-category').value = '共有';
+        id('editor-sharing-note').textContent = mode === 'post' ? '投稿時点の有効な登録利用者全員に、写真・表を含めて公開します。元の付箋と変更履歴は変更しません。' : mode === 'send' ? '指定した宛先に新しい付箋を送ります。元の付箋は残し、変更履歴は送りません。' : '';
+        id('editor-title').textContent = { post: '付箋をみんなに投稿', read: '読み取り専用', send: '付箋を送る', task: 'タスク', personal: row ? '付箋を編集' : '新しい付箋' }[mode];
         id('note-title').readOnly = mode === 'read';
         id('note-color').disabled = mode === 'read'; id('note-due').disabled = mode === 'read';
         id('editor-save').disabled = false; id('editor-save').style.display = mode === 'read' ? 'none' : '';
-        id('editor-save').textContent = mode === 'send' ? '送信する' : '保存する';
+        id('editor-save').textContent = mode === 'post' ? '投稿する' : mode === 'send' ? '送信する' : '保存する';
         id('editor-toolbar').style.display = mode === 'read' ? 'none' : '';
-        id('note-to-task').style.display = mode === 'read' || mode === 'send' || mode === 'task' ? 'none' : '';
+        id('editor-photo-toolbar').style.display = mode === 'read' ? 'none' : '';
+        id('note-to-task').style.display = mode === 'personal' ? '' : 'none';
+        id('editor-forward').style.display = row ? '' : 'none'; id('editor-post').style.display = row ? '' : 'none';
         id('note-history').style.display = mode !== 'read' && row && (value.versions || []).length ? '' : 'none';
         id('editor-modal').className = 'modal-backdrop visible'; id('note-title').focus();
     }
@@ -62,15 +66,30 @@ var Fsn = (function () {
     }
     function save() {
         if (!editor || editor.mode === 'read' || Data.busy()) { return false; }
+        if (NoteEditor.busy()) { toast('写真の読み込み完了をお待ちください。'); return false; }
         var captured = editor, value = formValue(), token = Session.token();
+        if (editor.mode === 'post' && !window.confirm('写真・表を含むこの内容を、投稿時点の登録利用者全員に公開しますか？')) { return false; }
         id('editor-save').disabled = true;
-        Data.saveNote(editor.row, value, id('note-recipient').value, { send: 'DIRECT', task: 'TASK', personal: 'PERSONAL' }[editor.mode], function (error, warning) {
+        function completed(error, warning) {
             id('editor-save').disabled = false;
             if (token !== Session.token()) { return; }
             if (!error && editor === captured) { close(); }
             result(error, warning);
-        });
+            if (!error && captured.mode === 'post') { tab('sns'); toast(warning || '投稿しました'); }
+            else if (!error && captured.mode === 'send') { toast(warning || '送信しました'); }
+        }
+        if (editor.mode === 'post') { Data.savePost(null, { title: value.title, body: value.content, bodyFormat: 'html', category: Util.trim(id('note-post-category').value) || '共有', createdAt: new Date().toISOString() }, completed); }
+        else { Data.saveNote(editor.row, value, id('note-recipient').value, { send: 'DIRECT', task: 'TASK', personal: 'PERSONAL' }[editor.mode], completed); }
         return true;
+    }
+    function share(row, mode, value) {
+        if (!row || !Session.user() || Data.busy()) { return; }
+        if (NoteEditor.busy()) { toast('写真の読み込み完了をお待ちください。'); return; }
+        value = value || row.value;
+        /* Share only the visible note, never historical private versions. */
+        var draft = { title: value.title, content: value.content, color: value.color, due: value.due };
+        if (mode === 'send') { draft.OriginalSender = row.value.OriginalSender || row.SenderUserId; draft.OriginalNoteId = row.value.OriginalNoteId || String(row.Id); draft.ForwardedBy = Session.user().userId; }
+        open(null, mode, draft);
     }
     function updateNote(row, value, callback) { Data.saveNote(row, value, '', row.NoteType, callback || result); }
     function remove(value) { var row = note(value), changed; if (!row) { return; } changed = Util.clone(row.value); changed.deleted = true; updateNote(row, changed); }
@@ -156,8 +175,10 @@ var Fsn = (function () {
         for (i = 0; i < tabs.length; i += 1) { tabs[i].onclick = function () { tab(this.getAttribute('data-tab')); }; }
         bind('new-note', function () { open(null, 'personal'); }); bind('send-note', function () { open(null, 'send'); }); bind('new-task', function () { open(null, 'task'); });
         bind('editor-save', save); bind('editor-close', function () { close(); }); bind('editor-cancel', function () { close(); });
-        bind('editor-copy', function () { if (!editor) { return; } var value = formValue(); delete value.versions; delete value.deleted; delete value.archived; open(null, 'personal', value); });
-        bind('note-to-task', function () { if (!editor || editor.mode === 'read') { return; } var value = formValue(); value.status = '未着手'; Data.saveNote(null, value, '', 'TASK', result); });
+        bind('editor-copy', function () { if (!editor || NoteEditor.busy()) { return; } var value = formValue(); delete value.versions; delete value.deleted; delete value.archived; if (NoteVisibility.received(editor.row)) { value.contentHidden = true; } open(null, 'personal', value); });
+        bind('editor-forward', function () { if (editor) { share(editor.row, 'send', formValue()); } });
+        bind('editor-post', function () { if (editor) { share(editor.row, 'post', formValue()); } });
+        bind('note-to-task', function () { if (!editor || editor.mode === 'read' || NoteEditor.busy()) { return; } var value = formValue(); value.status = '未着手'; Data.saveNote(null, value, '', 'TASK', result); });
         bind('note-history', function () {
             if (!editor || editor.mode === 'read') { return; }
             var versions = editor.value.versions || [], choice = window.prompt(versions.map(function (v, index) { return (index + 1) + '：' + (v.updatedAt || '') + ' ' + v.title; }).join('\n'), String(versions.length)), index;
@@ -227,5 +248,5 @@ var Fsn = (function () {
         }
     }
     document.addEventListener('DOMContentLoaded', init);
-    return { tab: tab, open: open, close: close, save: save, remove: remove, updateNote: updateNote, result: result, render: render, toast: toast, esc: Util.esc, note: note, archived: function () { return archived; }, unreadOnly: function () { return unread; }, lock: lock, csv: csv, init: init };
+    return { tab: tab, open: open, close: close, save: save, share: share, remove: remove, updateNote: updateNote, result: result, render: render, toast: toast, esc: Util.esc, note: note, archived: function () { return archived; }, unreadOnly: function () { return unread; }, lock: lock, csv: csv, init: init };
 }());

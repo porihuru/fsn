@@ -33,7 +33,7 @@ main{max-width:none;margin:0 auto;padding:8px 18px 16px}
 .secondary,.filter-button,.outline{border:1px solid #e1e3ec;background:#fff;color:#626679;border-radius:8px;padding:10px 15px;cursor:pointer}
 .board-wrap{min-height:calc(100vh - 158px);background:#eceaf8;border-radius:12px;padding:10px;overflow:auto;background-image:radial-gradient(#d7d4ef 1px,transparent 1px);background-size:18px 18px}
 .sticky-board{position:relative;z-index:0;min-width:850px;min-height:calc(100vh - 180px);height:510px}
-.sticky-note{position:absolute;border-radius:4px;padding:25px 20px 20px;color:#514c48;box-shadow:0 9px 20px rgba(100,97,123,0.102);transform:rotate(-1deg);transition:transform .15s,box-shadow .15s}
+.sticky-note{position:absolute;border-radius:4px;padding:30px 20px 20px;color:#514c48;box-shadow:0 9px 20px rgba(100,97,123,0.102);transform:rotate(-1deg);transition:transform .15s,box-shadow .15s}
 .sticky-note:hover{transform:rotate(0) translateY(-3px);box-shadow:0 14px 25px rgba(100,97,123,0.188)}
 .sticky-note.yellow{background:#fff1a8}
 .sticky-note.blue{background:#ccecff}
@@ -42,9 +42,20 @@ main{max-width:none;margin:0 auto;padding:8px 18px 16px}
 .sticky-note h3{margin:0 0 13px;font-size:16px}
 .sticky-note p{line-height:1.7;margin:0;font-size:13px}
 .note-pin{position:absolute;top:9px;left:50%;width:9px;height:9px;border-radius:50%;background:#ef8c87;box-shadow:0 1px 2px rgba(0,0,0,0.200)}
-.note-actions{position:absolute;right:8px;top:5px;opacity:0}
-.sticky-note:hover .note-actions{opacity:1}
-.note-actions button{border:0;background:transparent;color:#867f7a;cursor:pointer}
+.note-actions{position:absolute;left:0;right:0;top:0;height:24px;display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-end;padding:0 6px;background:rgba(80,70,60,.08);border-radius:4px 4px 0 0;white-space:nowrap}
+.note-actions button{flex:0 0 auto;min-width:24px;height:22px;padding:0 4px;border:0;border-radius:3px;background:transparent;color:#625b55;font:inherit;font-size:12px;cursor:pointer}
+.note-actions button:hover{background:rgba(80,70,60,.12)}
+.note-drag-handle{flex:1 1 auto;min-width:14px;color:#625b55;font-size:14px;line-height:1;white-space:nowrap}
+.sticky-note>.note-actions,.sticky-note>h3,.sticky-note>.note-hidden-message{cursor:move}
+.sticky-note.pinned>.note-actions,.sticky-note.pinned>h3,.sticky-note.pinned>.note-hidden-message{cursor:default}
+.note-actions [data-action="pinned"][aria-pressed="true"]{background:rgba(80,70,60,.14)}
+.note-visibility svg{vertical-align:middle;pointer-events:none}
+.note-actions .note-visibility[aria-pressed="true"]{background:rgba(80,70,60,.14)}
+.note-hidden-message{color:#625b55;font-size:12px}
+.inbox-card.received-note{position:relative;padding-top:32px}
+.received-note>.note-actions{margin:0;border-radius:13px 13px 0 0}
+.received-note>.received-preview{min-width:0}
+.received-preview h3{margin:0 0 8px;font-size:16px}
 .note-due{display:block;margin-top:15px;color:#8e817b}
 .empty-state{color:#969aaa;text-align:center;padding-top:190px;line-height:2}
 .inbox-list,.post-list,.notification-list,.task-list{max-width:880px}
@@ -96,6 +107,10 @@ main{max-width:none;margin:0 auto;padding:8px 18px 16px}
 .editor-help{margin:6px 0;color:#737789;font-size:11px}
 #note-content-status{margin:4px 0;font-size:12px}#note-content-status:empty{display:none}
 #editor-toolbar{display:flex;flex-wrap:wrap;margin:8px -3px 0}#editor-toolbar button{margin:3px;padding:8px 10px}
+.note-editor img,.note-body img,.post-body img{display:block;max-width:100%;height:auto;margin:8px 0}
+.photo-toolbar{display:flex;flex-wrap:wrap;align-items:center;margin:6px -3px}.photo-toolbar>*{margin:3px}.photo-toolbar span{color:#737789;font-size:11px}
+.post-body table{border-collapse:collapse;max-width:100%}.post-body td,.post-body th{border:1px solid #aaa;padding:5px}.post-body{overflow-x:auto}
+#editor-sharing-note:empty{display:none}
 .form-row{display:flex;gap:12px}
 .form-row label{flex:1}
 .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}

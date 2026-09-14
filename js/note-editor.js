@@ -1,12 +1,14 @@
 /* Offline ES5 rich text. Store the existing content string, not a new schema. */
 function sanitizeHtml(value) {
-    var allowed = { DIV: 1, P: 1, BR: 1, B: 1, STRONG: 1, I: 1, EM: 1, U: 1, S: 1, SPAN: 1, TABLE: 1, TBODY: 1, THEAD: 1, TFOOT: 1, TR: 1, TD: 1, TH: 1, UL: 1, OL: 1, LI: 1 };
+    var allowed = { IMG: 1, DIV: 1, P: 1, BR: 1, B: 1, STRONG: 1, I: 1, EM: 1, U: 1, S: 1, SPAN: 1, TABLE: 1, TBODY: 1, THEAD: 1, TFOOT: 1, TR: 1, TD: 1, TH: 1, UL: 1, OL: 1, LI: 1 };
     var inert = document.implementation.createHTMLDocument(''), box = inert.createElement('div'), nodes, i, j, name, span;
     box.innerHTML = String(value || ''); nodes = box.getElementsByTagName('*');
     for (i = nodes.length - 1; i >= 0; i -= 1) {
         if (!allowed[nodes[i].tagName]) { nodes[i].parentNode.removeChild(nodes[i]); continue; }
+        if (nodes[i].tagName === 'IMG' && !NotePhoto.valid(nodes[i].getAttribute('src'))) { nodes[i].parentNode.removeChild(nodes[i]); continue; }
         for (j = nodes[i].attributes.length - 1; j >= 0; j -= 1) {
             name = nodes[i].attributes[j].name.toLowerCase(); span = nodes[i].attributes[j].value;
+            if (nodes[i].tagName === 'IMG' && (name === 'src' || name === 'alt')) { continue; }
             if (/^(TD|TH)$/.test(nodes[i].tagName) && /^(colspan|rowspan)$/.test(name) && /^[1-9][0-9]?$/.test(span)) { continue; }
             nodes[i].removeAttribute(name);
         }
@@ -27,6 +29,7 @@ var NoteMarkup = (function () {
             }
             if (node.nodeType !== 1) { continue; }
             tag = node.tagName; block = tag === 'DIV' || tag === 'P';
+            if (tag === 'IMG') { result += '<img src="' + node.getAttribute('src') + '" alt="' + Util.esc(node.getAttribute('alt') || '写真') + '">'; continue; }
             if (tag === 'BR') { result += inTable ? '<br>' : '\n'; continue; }
             value = children(node, inTable || tag === 'TABLE');
             if (block) {
@@ -53,11 +56,16 @@ var NoteMarkup = (function () {
         box.innerHTML = normalize(value).replace(/<\/t[dh]>/g, '\t').replace(/<\/tr>/g, '\n').replace(/<br>/g, '\n');
         return box.textContent;
     }
-    return { normalize: normalize, html: html, plain: plain };
+    function length(value) { return String(value || '').replace(/ src="data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+"/g, '').length; }
+    function validate(value) {
+        if (length(value) > 20000) { throw new Error('本文は写真データを除き、表・書式を含め20000文字以内にしてください。'); }
+        if ((String(value).match(/<img /g) || []).length > 3) { throw new Error('写真は付箋・投稿1件につき3枚以内にしてください。'); }
+    }
+    return { normalize: normalize, html: html, plain: plain, length: length, validate: validate };
 }());
 var NoteEditor = (function () {
     'use strict';
-    var field, savedRange = null, readonly = false, initialized = false;
+    var field, savedRange = null, readonly = false, initialized = false, photoEpoch = 0, importing = false, selectedPhoto = null;
     function belongs(range) { return range && field.contains(range.startContainer) && field.contains(range.endContainer); }
     function remember() { var selection = window.getSelection(); if (selection.rangeCount && belongs(selection.getRangeAt(0))) { savedRange = selection.getRangeAt(0).cloneRange(); } }
     function range() {
@@ -73,9 +81,9 @@ var NoteEditor = (function () {
     function focusCell(node) { var value = document.createRange(); value.selectNodeContents(node); select(value); }
     function get() { return NoteMarkup.normalize(field.innerHTML); }
     function status() {
-        var size = get().length, message = document.getElementById('note-content-status');
-        message.textContent = size > 20000 ? '本文が上限を超えています。表・書式を含め20000文字以内にしてください。' : '';
-        field.setAttribute('aria-invalid', size > 20000 ? 'true' : 'false');
+        var message = document.getElementById('note-content-status'), error = '';
+        try { NoteMarkup.validate(get()); } catch (e) { error = Util.message(e); }
+        message.textContent = error || (importing ? '写真を縮小しています…' : ''); field.setAttribute('aria-invalid', error ? 'true' : 'false');
     }
     function put(html, firstCell) {
         if (readonly) { return; }
@@ -121,6 +129,12 @@ var NoteEditor = (function () {
     }
     function insert(type) {
         if (readonly) { return; }
+        if (importing) { Fsn.toast('写真の読み込み完了をお待ちください。'); return; }
+        if (type === 'photo') { remember(); document.getElementById('note-photo-file').click(); return; }
+        if (type === 'remove-photo') {
+            if (!selectedPhoto || !field.contains(selectedPhoto)) { Fsn.toast('削除する写真を先にクリックしてください。'); return; }
+            selectedPhoto.parentNode.removeChild(selectedPhoto); selectedPhoto = null; savedRange = null; status(); return;
+        }
         if (type === 'table') { table(); return; }
         if (type === 'row' || type === 'column' || type === 'remove-table') { structure(type); return; }
         var value = range(), text = value.toString();
@@ -134,8 +148,13 @@ var NoteEditor = (function () {
         event.preventDefault(); if (readonly) { return; }
         var clipboard = event.clipboardData || window.clipboardData, html = '', text = '', rows, width, i, j;
         if (!clipboard) { Fsn.toast('このブラウザでは貼り付けを取得できません。直接入力してください。'); return; }
-        try { html = event.clipboardData ? clipboard.getData('text/html') : ''; text = clipboard.getData(event.clipboardData ? 'text/plain' : 'Text'); }
+        try { if (clipboard.getData) { html = event.clipboardData ? clipboard.getData('text/html') : ''; text = clipboard.getData(event.clipboardData ? 'text/plain' : 'Text'); } }
         catch (e) { Fsn.toast('クリップボードを読み取れません。ブラウザの権限を確認してください。'); return; }
+        /* Office can offer the same cells as both HTML and a bitmap: keep the table editable. */
+        if (!/<table[\s>]/i.test(html)) {
+            if (clipboard.files && clipboard.files.length) { addPhoto(clipboard.files[0]); return; }
+            if (clipboard.items) { for (i = 0; i < clipboard.items.length; i += 1) { if (clipboard.items[i].kind === 'file') { addPhoto(clipboard.items[i].getAsFile()); return; } } }
+        }
         if (html.length > 200000 || text.length > 20000) { Fsn.toast('貼り付ける内容が大きすぎます。範囲を小さくしてください。'); return; }
         if (html) { html = NoteMarkup.html(html); }
         else if (text.indexOf('\t') !== -1 && !cell(range())) {
@@ -147,15 +166,30 @@ var NoteEditor = (function () {
             html += '</tbody></table><p><br></p>';
         } else { html = Util.esc(text).replace(/\r\n?|\n/g, '<br>'); }
         if (cell(range()) && /<table[ >]/i.test(html)) { Fsn.toast('表の外をクリックして貼り付けてください。'); return; }
-        if (NoteMarkup.normalize(html).length > 20000) { Fsn.toast('表・書式を含め20000文字以内にしてください。'); return; }
+        try { NoteMarkup.validate(NoteMarkup.normalize(html)); } catch (limitError) { Fsn.toast(Util.message(limitError)); return; }
         put(html, /<table[ >]/i.test(html));
+    }
+    function addPhoto(file) {
+        if (readonly || importing) { return; }
+        if (field.querySelectorAll('img').length >= 3) { Fsn.toast('写真は3枚以内にしてください。'); return; }
+        var epoch = photoEpoch, insertion = range(); importing = true; status();
+        NotePhoto.read(file, function (error, data) {
+            if (epoch !== photoEpoch) { return; } importing = false;
+            if (error) { status(); Fsn.toast(Util.message(error)); return; }
+            if (field.querySelectorAll('img').length >= 3) { status(); Fsn.toast('写真は3枚以内にしてください。'); return; }
+            if (belongs(insertion)) { select(insertion); }
+            put('<img src="' + data + '" alt="写真"><br>', false);
+        });
     }
     function init() {
         if (initialized) { return; } initialized = true; field = document.getElementById('note-content');
         field.onkeyup = remember; field.onmouseup = remember; field.onblur = remember;
         field.oninput = function () { remember(); status(); };
         field.onpaste = paste;
-        field.ondrop = function (event) { event.preventDefault(); if (!readonly) { Fsn.toast('画像・ファイルのドロップは使えません。表はコピーして貼り付けてください。'); } };
+        field.ondragover = function (event) { event.preventDefault(); };
+        field.ondrop = function (event) { event.preventDefault(); if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length) { addPhoto(event.dataTransfer.files[0]); } };
+        field.onclick = function (event) { selectedPhoto = event.target.tagName === 'IMG' ? event.target : null; if (selectedPhoto && !readonly) { var value = document.createRange(); value.selectNode(selectedPhoto); select(value); } };
+        document.getElementById('note-photo-file').onchange = function () { var file = this.files && this.files[0]; this.value = ''; if (file) { addPhoto(file); } };
         field.onkeydown = function (event) {
             if (readonly || (event.keyCode || event.which) !== 9) { return; }
             var current = cell(range()), target = tableOf(current), cells, index, next;
@@ -165,12 +199,13 @@ var NoteEditor = (function () {
             else if (!event.shiftKey && target.rows.length < 100 && !target.querySelector('[colspan],[rowspan]')) { event.preventDefault(); event.stopPropagation(); structure('row'); }
         };
         document.getElementById('editor-toolbar').onmousedown = function (event) { remember(); event.preventDefault(); };
+        document.getElementById('editor-photo-toolbar').onmousedown = function (event) { remember(); event.preventDefault(); };
     }
     function set(value, readOnly) {
-        init(); readonly = !!readOnly; savedRange = null; field.innerHTML = NoteMarkup.html(value);
+        init(); photoEpoch += 1; importing = false; selectedPhoto = null; readonly = !!readOnly; savedRange = null; field.innerHTML = NoteMarkup.html(value);
         if (!readonly && field.lastChild && field.lastChild.tagName === 'TABLE') { var after = document.createElement('p'); after.appendChild(document.createElement('br')); field.appendChild(after); }
         field.setAttribute('contenteditable', readonly ? 'false' : 'true'); field.setAttribute('aria-readonly', readonly ? 'true' : 'false'); status();
     }
-    function clear() { if (!field) { return; } field.innerHTML = ''; savedRange = null; status(); }
-    return { init: init, set: set, get: get, clear: clear, insert: insert };
+    function clear() { if (!field) { return; } photoEpoch += 1; importing = false; selectedPhoto = null; field.innerHTML = ''; savedRange = null; document.getElementById('note-photo-file').value = ''; status(); }
+    return { init: init, set: set, get: get, clear: clear, insert: insert, addPhoto: addPhoto, busy: function () { return importing; } };
 }());

@@ -12,7 +12,7 @@ var SharePoint = (function () {
         if (url.indexOf('/') === 0 && (anchor.protocol + '//' + anchor.host + url).indexOf(base + '/_api/') === 0) { return anchor.protocol + '//' + anchor.host + url; }
         throw new Error('別サイトを指すREST URLを拒否しました。');
     }
-    function request(method, url, data, headers, callback) {
+    function request(method, url, data, headers, callback, raw) {
         var xhr, key, finished = false;
         function finish(result) {
             if (finished) { return; } finished = true;
@@ -23,7 +23,7 @@ var SharePoint = (function () {
             xhr = new XMLHttpRequest();
             xhr.open(method, endpoint(url), true); xhr.timeout = 30000; xhr.withCredentials = true;
             xhr.setRequestHeader('Accept', 'application/json;odata=verbose');
-            if (data !== null) { xhr.setRequestHeader('Content-Type', 'application/json;odata=verbose'); }
+            if (data !== null) { xhr.setRequestHeader('Content-Type', raw ? 'application/octet-stream' : 'application/json;odata=verbose'); }
             for (key in headers) { if (Object.prototype.hasOwnProperty.call(headers, key)) { xhr.setRequestHeader(key, headers[key]); } }
             xhr.onload = function () {
                 var status = xhr.status === 1223 ? 204 : xhr.status, parsed = null;
@@ -37,7 +37,7 @@ var SharePoint = (function () {
             xhr.onerror = function () { finish({ ok: false, status: 0, error: '通信失敗：接続先・同一オリジン・CORS・証明書を確認してください。' }); };
             xhr.ontimeout = function () { finish({ ok: false, status: 0, error: '通信がタイムアウトしました。書き込み結果を再読み込みして確認してください。' }); };
             xhr.onabort = function () { finish({ ok: false, status: 0, error: '通信が中断されました。' }); };
-            xhr.send(data === null ? null : JSON.stringify(data));
+            xhr.send(data === null ? null : raw ? data : JSON.stringify(data));
         } catch (e) { finish({ ok: false, status: 0, error: Util.message(e) }); }
     }
     function get(url, callback) { request('GET', url, null, {}, callback); }
@@ -99,7 +99,25 @@ var SharePoint = (function () {
         if (!etag) { callback({ ok: false, error: '削除対象のETagがありません。' }); return; }
         write(itemUrl(title, row.Id), null, { 'IF-MATCH': etag, 'X-HTTP-Method': 'DELETE' }, callback);
     }
+    function attachmentUrl(id, name) {
+        if (!/^payload-[a-f0-9]{32}\.json$/.test(name)) { throw new Error('暗号化添付の名前が不正です。'); }
+        return itemUrl(APP_CONFIG.LIST_NOTES, id) + '/AttachmentFiles(' + literal(name) + ')/$value';
+    }
+    function addAttachment(id, name, content, callback) {
+        var bytes, utf8, i;
+        try {
+            attachmentUrl(id, name); utf8 = forge.util.encodeUtf8(content); bytes = new Uint8Array(utf8.length);
+            for (i = 0; i < utf8.length; i += 1) { bytes[i] = utf8.charCodeAt(i); }
+        } catch (e) { callback({ ok: false, error: Util.message(e) }); return; }
+        getRequestDigest(function (r) {
+            if (!r.ok) { callback(r); return; }
+            request('POST', itemUrl(APP_CONFIG.LIST_NOTES, id) + '/AttachmentFiles/add(FileName=' + literal(name) + ')', bytes.buffer,
+                { 'X-RequestDigest': r.value }, callback, true);
+        });
+    }
     return { get: get, listUrl: listUrl, itemUrl: itemUrl, literal: literal, allPages: rows, getRequestDigest: getRequestDigest, createListItem: create, updateItem: updateItem, deleteItem: deleteItem,
+        addAttachment: addAttachment,
+        getAttachment: function (id, name, callback) { try { get(attachmentUrl(id, name), callback); } catch (e) { callback({ ok: false, error: Util.message(e) }); } },
         listItems: function (title, query, cb) { rows(listUrl(title) + '/items' + (query || ''), cb); },
         getCurrentUser: function (cb) { get('/_api/web/currentuser', function (r) { var d = r.data && r.data.d; cb(r.ok && d ? null : new Error(r.error || 'ログイン利用者を取得できません。'), d); }); }
     };
@@ -134,7 +152,12 @@ var SharePointSetup = (function () {
                 }
                 next();
             });
-        }, function () { var i; for (i = 0; i < failures.length; i += 1) { ErrorStore.add('リスト診断', failures[i]); } callback(failures); });
+        }, function () {
+            SharePoint.get(SharePoint.listUrl(APP_CONFIG.LIST_NOTES) + '?$select=EnableAttachments', function (answer) {
+                if (!answer.ok || !answer.data || !answer.data.d || answer.data.d.EnableAttachments !== true) { failures.push(APP_CONFIG.LIST_NOTES + ': 写真・大きな本文の保存には添付ファイルを有効にしてください。'); }
+                var i; for (i = 0; i < failures.length; i += 1) { ErrorStore.add('リスト診断', failures[i]); } callback(failures);
+            });
+        });
     }
     return { definitions: definitions, check: check };
 }());
@@ -143,7 +166,10 @@ var SharePointSetup = (function () {
 var Records = {
     list: function (title, filter, predicate, callback) {
         if (APP_CONFIG.USE_SHAREPOINT) {
-            SharePoint.listItems(title, '?$top=500' + (filter ? '&$filter=' + filter : ''), function (r) { callback(r.ok ? null : new Error(r.error), r.data); });
+            SharePoint.listItems(title, '?$top=500' + (filter ? '&$filter=' + filter : ''), function (r) {
+                if (!r.ok) { callback(new Error(r.error)); return; }
+                PayloadStore.resolveRows(r.data, callback);
+            });
         } else {
             try { callback(null, Storage.get('fsn_table_' + title, []).filter(predicate || function () { return true; })); }
             catch (e) { callback(e); }
@@ -153,11 +179,17 @@ var Records = {
         this.list(title, 'Id eq ' + Number(id), function (r) { return String(r.Id) === String(id); }, function (e, rows) { callback(e || (!rows.length ? new Error('対象が見つかりません。') : null), rows && rows[0]); });
     },
     save: function (title, row, fields, callback) {
+        if (fields.EncryptedPayload && fields.EncryptedPayload.length > 8 * 1024 * 1024) { callback(new Error('写真・変更履歴を含む保存データが8MBを超えています。写真を減らすか、新しい付箋へコピーしてください。')); return; }
+        if (APP_CONFIG.USE_SHAREPOINT && fields.EncryptedPayload && fields.EncryptedPayload.length > 50000) {
+            PayloadStore.prepare(fields, function (error, prepared) { if (error) { callback(error); return; } Records.save(title, row, prepared, callback); }); return;
+        }
         if (APP_CONFIG.USE_SHAREPOINT) {
             var finish = function (r) {
                 if (!r.ok) { callback(new Error(r.error || '保存に失敗しました。')); return; }
                 var saved = r.data && r.data.d;
-                Records.get(title, saved && saved.Id || row.Id, callback);
+                var savedId = saved && saved.Id || row && row.Id;
+                if (!savedId) { callback(new Error('保存応答にIDがありません。保存結果を再読み込みして確認してください。')); return; }
+                Records.get(title, savedId, callback);
             };
             if (row) { SharePoint.updateItem(title, row, fields, finish); } else { SharePoint.createListItem(title, fields, finish); }
         } else {

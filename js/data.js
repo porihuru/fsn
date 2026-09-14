@@ -89,8 +89,9 @@ var Data = (function () {
     }
     function validateNote(value) {
         value.content = NoteMarkup.normalize(value.content);
-        if (!Util.trim(value.title) && !Util.trim(NoteMarkup.plain(value.content)) && !/<table>/.test(value.content)) { throw new Error('タイトルまたは本文を入力してください。'); }
-        if (String(value.title).length > 200 || String(value.content).length > 20000) { throw new Error('タイトル200文字・本文20000文字以内で入力してください。'); }
+        if (!Util.trim(value.title) && !Util.trim(NoteMarkup.plain(value.content)) && !/<table>|<img /.test(value.content)) { throw new Error('タイトルまたは本文を入力してください。'); }
+        if (String(value.title).length > 200) { throw new Error('タイトルは200文字以内で入力してください。'); }
+        NoteMarkup.validate(value.content);
         if (!Util.date(value.due)) { throw new Error('期限は実在する日付を YYYY-MM-DD で入力してください。'); }
         if (value.status && ['未着手', '対応中', '保留', '完了'].indexOf(value.status) === -1) { throw new Error('タスクの状態が不正です。'); }
         value.title = Util.trim(value.title) || '無題の付箋'; value.color = Util.color(value.color);
@@ -167,8 +168,15 @@ var Data = (function () {
     }
     function savePost(row, value, callback) {
         mutate('SAVE_POST', function (finish) {
-            if (!Util.trim(value.body)) { throw new Error('投稿本文を入力してください。'); }
-            if (value.body.length > 20000 || String(value.category || '').length > 100) { throw new Error('投稿本文20000文字・分類100文字以内で入力してください。'); }
+            value = Util.clone(value);
+            if (value.bodyFormat === 'html') {
+                value.body = NoteMarkup.normalize(value.body); NoteMarkup.validate(value.body);
+                if (!Util.trim(NoteMarkup.plain(value.body)) && !/<table>|<img /.test(value.body) && !Util.trim(value.title)) { throw new Error('投稿のタイトルまたは本文を入力してください。'); }
+            } else {
+                if (!Util.trim(value.body)) { throw new Error('投稿本文を入力してください。'); }
+                if (value.body.length > 20000) { throw new Error('投稿本文は20000文字以内で入力してください。'); }
+            }
+            if (String(value.category || '').length > 100 || String(value.title || '').length > 200) { throw new Error('投稿の分類は100文字・タイトルは200文字以内で入力してください。'); }
             if (row && row.AuthorUserId !== actor()) { throw new Error('他の利用者の投稿は変更できません。'); }
             var existing = row && JSON.parse(row.EncryptedPayload), encrypted;
             if (row) {
