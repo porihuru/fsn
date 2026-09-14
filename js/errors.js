@@ -1,6 +1,36 @@
-var ErrorStore = { add: function (source, message, detail) { var items = Storage.get('sticky_errors', []), i; for (i = 0; i < items.length; i += 1) { if (items[i].source === source && items[i].message === message && items[i].detail === (detail || '')) { return; } } items.unshift({ source: source, message: message, detail: detail || '', createdAt: new Date().toISOString() }); Storage.set('sticky_errors', items.slice(0, 100)); }, all: function () { return Storage.get('sticky_errors', []); }, clear: function () { Storage.set('sticky_errors', []); } };
-function renderErrors() { var list = document.getElementById('error-list'), items = ErrorStore.all(), i, html = ''; if (!list) { return; } for (i = 0; i < items.length; i += 1) { html += '<div class="notification-row"><span class="notification-icon">!</span><div><strong>' + Fsn.esc(items[i].source) + '：' + Fsn.esc(items[i].message) + '</strong><p>' + Fsn.esc(items[i].detail) + '</p></div><time>' + Fsn.esc(items[i].createdAt.substring(0, 16).replace('T', ' ')) + '</time></div>'; } list.innerHTML = html || '<div class="empty-state" style="padding-top:40px">エラーはありません。</div>'; }
-window.onerror = function (message, source, line) { ErrorStore.add('JavaScript', String(message), String(source || '') + ':' + String(line || '')); };
-function checkBrowserCompatibility() { var ua = navigator.userAgent, supported = /Trident\/7\.0/.test(ua) || /Edg\/9[5-9]\./.test(ua) || /Edg\/[1-9][0-9]{2,}\./.test(ua), required = [{ name: 'XMLHttpRequest', ok: !!window.XMLHttpRequest }, { name: 'localStorage', ok: !!window.localStorage }, { name: 'JSON', ok: !!window.JSON }, { name: 'Blob', ok: !!window.Blob }, { name: 'FileReader', ok: !!window.FileReader }], i; if (!supported) { ErrorStore.add('ブラウザ互換性', '対象外のブラウザです', '対応対象は Microsoft Edge 95 以降 または Internet Explorer 11 です。検出値：' + ua); } for (i = 0; i < required.length; i += 1) { if (!required[i].ok) { ErrorStore.add('ブラウザ互換性', '必要な機能が利用できません：' + required[i].name, 'Edge 95 / IE11互換の環境で開いてください。'); } } if (window.APP_CONFIG && APP_CONFIG.USE_SHAREPOINT && !APP_CONFIG.SHAREPOINT_BASE_URL) { ErrorStore.add('SharePoint設定', 'SHAREPOINT_BASE_URLが未設定です', 'USE_SHAREPOINTをtrueにする場合はサイトURLを設定してください。'); } if (window.APP_CONFIG && APP_CONFIG.USE_SHAREPOINT && APP_CONFIG.SHAREPOINT_BASE_URL && APP_CONFIG.SHAREPOINT_BASE_URL.indexOf('https://') !== 0) { ErrorStore.add('SharePoint設定', 'HTTPSではないサイトURLです', 'SharePointサイトURLはhttps://で指定してください。'); } }
-document.addEventListener('DOMContentLoaded', function () { var nav = document.querySelector('.topbar nav'), main = document.querySelector('main'), button, panel; checkBrowserCompatibility(); if (!nav || !main) { return; } button = document.createElement('button'); button.className = 'nav-tab'; button.setAttribute('data-tab', 'errors'); button.textContent = 'エラー一覧'; nav.appendChild(button); panel = document.createElement('section'); panel.id = 'panel-errors'; panel.className = 'tab-panel'; panel.innerHTML = '<div class="page-head"><div><p class="eyebrow">ERRORS</p><h1>エラー一覧</h1><p class="muted">接続・権限・JavaScriptのエラーを表示します。</p></div><button class="secondary" id="clear-errors">クリア</button></div><div id="error-list" class="notification-list"></div>'; main.appendChild(panel); button.onclick = function () { Fsn.tab('errors'); renderErrors(); }; document.getElementById('clear-errors').onclick = function () { ErrorStore.clear(); renderErrors(); }; });
-document.addEventListener('DOMContentLoaded', function () { var due = document.getElementById('note-due'), save = document.getElementById('editor-save'); if (due) { due.type = 'text'; due.placeholder = 'YYYY-MM-DD'; due.setAttribute('pattern', '[0-9]{4}-[0-9]{2}-[0-9]{2}'); } if (save) { save.addEventListener('click', function (event) { var value = due.value, date; if (!value) { return; } date = new Date(value + 'T00:00:00'); if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || isNaN(date.getTime())) { event.preventDefault(); event.stopImmediatePropagation(); Fsn.toast('期限は YYYY-MM-DD 形式で入力してください。'); } }, true); } });
+/* Error reporting must also work when localStorage is denied or full. */
+var ErrorStore = (function () {
+    var items = [];
+    function add(source, message, detail) {
+        var i, now = new Date().toISOString();
+        for (i = 0; i < items.length; i += 1) {
+            if (items[i].source === source && items[i].message === message && items[i].detail === (detail || '')) { items[i].count += 1; items[i].lastAt = now; return; }
+        }
+        items.unshift({ source: source, message: message, detail: detail || '', count: 1, createdAt: now, lastAt: now });
+        items = items.slice(0, 100);
+    }
+    return { add: add, all: function () { return items.slice(); }, clear: function () { items = []; } };
+}());
+window.addEventListener('error', function (event) {
+    ErrorStore.add('JavaScript', event.message || 'リソースを読み込めません。', event.filename ? event.filename.split('?')[0] + ':' + event.lineno : '');
+});
+function checkBrowserCompatibility() {
+    var ua = navigator.userAgent, edge = /Edg\/(\d+)/.exec(ua), fatal = false, provider = window.crypto || window.msCrypto, key = 'fsn_storage_probe';
+    if (document.documentMode && document.documentMode !== 11) { ErrorStore.add('ブラウザ互換性', 'IE11標準モードが必要です。互換表示を解除してください。'); fatal = true; }
+    if (!document.documentMode && (!edge || +edge[1] < 95)) { ErrorStore.add('ブラウザ互換性', '動作対象外です。Edge 95以降またはIE11標準モードを使用してください。', ua); }
+    if (document.documentMode === 11) { ErrorStore.add('ブラウザ互換性', 'IE11互換モード：暗号処理に時間がかかります。SharePoint製品側の対応可否も確認してください。'); }
+    if (!provider || !provider.getRandomValues || !window.XMLHttpRequest || !window.JSON || !StickyCrypto.available()) { ErrorStore.add('ブラウザ互換性', '必要な通信・暗号機能を利用できません。'); fatal = true; }
+    try { var prior = window.localStorage.getItem(key); window.localStorage.setItem(key, 'test'); if (prior === null) { window.localStorage.removeItem(key); } else { window.localStorage.setItem(key, prior); } }
+    catch (e) { ErrorStore.add('端末保存', 'localStorageを使用できません。ブラウザの保存許可を確認してください。'); fatal = true; }
+    if (APP_CONFIG.USE_SHAREPOINT) {
+        var anchor = document.createElement('a'); anchor.href = APP_CONFIG.SHAREPOINT_BASE_URL;
+        if (!/^https?:\/\//.test(APP_CONFIG.SHAREPOINT_BASE_URL) || /[?#]/.test(APP_CONFIG.SHAREPOINT_BASE_URL)) { ErrorStore.add('SharePoint設定', 'サイトURLを http(s):// から入力してください。クエリや # は指定できません。'); fatal = true; }
+        if (window.location.protocol === 'file:' || anchor.protocol !== window.location.protocol || anchor.host !== window.location.host) { ErrorStore.add('SharePoint設定', 'HTMLの配置先とSharePointが別オリジンです。認証・CORS設定が必要です。'); }
+        if (anchor.protocol === 'http:') { ErrorStore.add('SharePoint設定', 'HTTPでは通信を暗号化できません。実データを扱う前にHTTPSを設定してください。'); }
+    }
+    return !fatal;
+}
+function renderErrors() {
+    var box = document.getElementById('error-list'), rows = ErrorStore.all();
+    if (box) { box.innerHTML = rows.map(function (r) { return '<div class="notification-row"><div><strong>' + Util.esc(r.source + '：' + r.message) + '</strong><p>' + Util.esc(r.detail) + '</p><small>' + Util.esc(r.lastAt) + '（' + r.count + '回）</small></div></div>'; }).join('') || '<p>エラーはありません。</p>'; }
+}

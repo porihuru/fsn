@@ -1,16 +1,62 @@
 var StickyApp = (function () {
-    function formatContent(text, noteId) { var lines = String(text || '').split('\n'), html = '', i, line, match; for (i = 0; i < lines.length; i += 1) { line = lines[i]; match = line.match(/^\[([ xX])\]\s*(.*)$/); if (match) { html += '<label class="note-check"><input type="checkbox" data-note="' + noteId + '" data-line="' + i + '"' + (match[1].toLowerCase() === 'x' ? ' checked' : '') + '><span>' + sanitizeHtml(match[2]) + '</span></label>'; } else { html += sanitizeHtml(line) + (i < lines.length - 1 ? '<br>' : ''); } } return html; }
-    function render(query) { var b = document.getElementById('sticky-board'), n = Storage.get('sticky_notes', []), i, x, h = ''; if (!b) { return; } for (i = 0; i < n.length; i += 1) { x = n[i]; if (query && (x.title + x.content).toLowerCase().indexOf(query.toLowerCase()) === -1) { continue; } h += '<article class="sticky-note ' + x.color + '" data-id="' + x.id + '" style="left:' + x.x + 'px;top:' + x.y + 'px;width:' + x.width + 'px;min-height:' + x.height + 'px;z-index:' + (x.zIndex || 1) + '"><div class="note-pin"></div><div class="note-actions"><button class="edit-note" type="button">編集</button><button class="delete-note" type="button">×</button></div><h3>' + Fsn.esc(x.title) + '</h3><p>' + formatContent(x.content, x.id) + '</p>' + (x.due ? '<small class="note-due">期限 ' + x.due + '</small>' : '') + '</article>'; } b.innerHTML = h || '<div class="empty-state">付箋はありません。<br>「新しい付箋」から作成できます。</div>'; var es = b.querySelectorAll('.edit-note'), ds = b.querySelectorAll('.delete-note'), checks = b.querySelectorAll('.note-check input'), notes = b.querySelectorAll('.sticky-note'), actions = b.querySelectorAll('.note-actions'), handle, mini, pin; for (i = 0; i < es.length; i += 1) { es[i].onclick = edit; ds[i].onclick = remove; mini = document.createElement('button'); mini.className = 'minimize-note'; mini.type = 'button'; mini.textContent = '−'; actions[i].appendChild(mini); mini.onclick = toggleMinimize; pin = document.createElement('button'); pin.className = 'pin-note'; pin.type = 'button'; pin.textContent = '◆'; actions[i].appendChild(pin); pin.onclick = togglePin; } for (i = 0; i < checks.length; i += 1) { checks[i].onclick = toggleCheck; } for (i = 0; i < notes.length; i += 1) { notes[i].onmousedown = dragStart; handle = document.createElement('span'); handle.className = 'resize-handle'; handle.style.cssText = 'position:absolute;right:3px;bottom:3px;width:13px;height:13px;cursor:nwse-resize'; notes[i].appendChild(handle); handle.onmousedown = resizeStart; } }
-    function get(noteId) { var a = Storage.get('sticky_notes', []), i; for (i = 0; i < a.length; i += 1) { if (a[i].id === noteId) { return a[i]; } } return null; }
-    function edit(e) { Fsn.open(get(e.target.parentNode.parentNode.getAttribute('data-id'))); }
-    function remove(e) { Fsn.remove(e.target.parentNode.parentNode.getAttribute('data-id')); }
-    function toggleCheck(e) { var input = e.target, notes = Storage.get('sticky_notes', []), lines, line, i, j; for (j = 0; j < notes.length; j += 1) { if (notes[j].id === input.getAttribute('data-note')) { lines = notes[j].content.split('\n'); line = parseInt(input.getAttribute('data-line'), 10); for (i = 0; i < lines.length; i += 1) { if (i === line) { lines[i] = '[' + (input.checked ? 'x' : ' ') + ']' + lines[i].substring(3); } } notes[j].content = lines.join('\n'); } } Storage.set('sticky_notes', notes); }
-    function dragStart(e) { var target = e.currentTarget, node = e.target, x = node; while (x && x !== target) { if (x.tagName === 'BUTTON' || x.tagName === 'INPUT') { return; } x = x.parentNode; } var board = document.getElementById('sticky-board'), startX = e.clientX, startY = e.clientY, left = parseInt(target.style.left, 10) || 0, top = parseInt(target.style.top, 10) || 0, noteId = target.getAttribute('data-id'); e.preventDefault(); target.style.zIndex = 99; document.onmousemove = function (move) { target.style.left = Math.max(0, left + move.clientX - startX) + 'px'; target.style.top = Math.max(0, top + move.clientY - startY) + 'px'; }; document.onmouseup = function () { var notes = Storage.get('sticky_notes', []), i; for (i = 0; i < notes.length; i += 1) { if (notes[i].id === noteId) { notes[i].x = parseInt(target.style.left, 10); notes[i].y = parseInt(target.style.top, 10); notes[i].zIndex = 99; } } Storage.set('sticky_notes', notes); document.onmousemove = null; document.onmouseup = null; };
+    function content(text, id) {
+        return String(text || '').split('\n').map(function (line, i) {
+            var match = /^\[([ xX])\]\s*(.*)$/.exec(line);
+            if (match) { return '<label class="note-check"><input type="checkbox" data-line="' + i + '" data-note="' + id + '"' + (match[1].toLowerCase() === 'x' ? ' checked' : '') + '><span>' + sanitizeHtml(match[2]) + '</span></label>'; }
+            return sanitizeHtml(line);
+        }).join('<br>');
     }
-    function resizeStart(e) { var handle = e.currentTarget, target = handle.parentNode, startX = e.clientX, startY = e.clientY, startW = target.offsetWidth, startH = target.offsetHeight, noteId = target.getAttribute('data-id'); e.preventDefault(); e.stopPropagation(); document.onmousemove = function (move) { target.style.width = Math.max(180, startW + move.clientX - startX) + 'px'; target.style.minHeight = Math.max(120, startH + move.clientY - startY) + 'px'; }; document.onmouseup = function () { var notes = Storage.get('sticky_notes', []), i; for (i = 0; i < notes.length; i += 1) { if (notes[i].id === noteId) { notes[i].width = target.offsetWidth; notes[i].height = target.offsetHeight; } } Storage.set('sticky_notes', notes); document.onmousemove = null; document.onmouseup = null; };
+    function number(value, fallback, max) { value = Number(value); return isFinite(value) ? Math.min(max, Math.max(0, value)) : fallback; }
+    function render() {
+        var board = document.getElementById('sticky-board'), query = document.getElementById('search-input').value.toLowerCase(), extent = 510;
+        var rows = Data.state().notes.filter(function (r) { return r.NoteType === 'PERSONAL' && !r.Deleted && r.SenderUserId === Session.user().userId && !!r.Archived === Fsn.archived(); });
+        board.innerHTML = rows.filter(function (r) { return (r.value.title + r.value.content).toLowerCase().indexOf(query) !== -1; }).map(function (row) {
+            var n = row.value, left = number(n.x, 30, 5000), top = number(n.y, 30, 10000), height = n.minimized ? 80 : Math.max(150, number(n.height, 180, 1500));
+            extent = Math.max(extent, top + height + 100);
+            return '<article class="sticky-note ' + Util.color(n.color) + (n.pinned ? ' pinned' : '') + '" data-id="' + row.Id + '" style="left:' + left + 'px;top:' + top + 'px;width:' + Math.max(240, number(n.width, 250, 1500)) + 'px;min-height:' + height + 'px;z-index:' + number(n.zIndex, 1, 999) + '"><div class="note-actions">' +
+                '<button data-action="edit">編集</button><button data-action="delete" title="ゴミ箱">×</button><button data-action="minimized" title="最小化">−</button><button data-action="pinned" title="位置を固定">◆</button><button data-action="archived" title="アーカイブ">□</button></div><h3>' + Util.esc(n.title) + '</h3>' +
+                '<div class="note-body"' + (n.minimized ? ' style="display:none"' : '') + '>' + content(n.content, row.Id) + (n.due ? '<small class="note-due">' + Util.esc(n.due) + '</small>' : '') + '</div>' + (!n.pinned && !n.minimized ? '<span class="resize-handle" title="サイズ変更"></span>' : '') + '</article>';
+        }).join('') || '<div class="empty-state">該当する付箋はありません。</div>';
+        board.style.height = extent + 'px';
+        var cards = board.querySelectorAll('.sticky-note'), i;
+        for (i = 0; i < cards.length; i += 1) { bind(cards[i]); }
     }
-    function toggleMinimize(e) { var button = e.currentTarget, note = button.parentNode.parentNode, body = note.getElementsByTagName('p')[0], due = note.querySelector('.note-due'), notes = Storage.get('sticky_notes', []), i, minimized; for (i = 0; i < notes.length; i += 1) { if (notes[i].id === note.getAttribute('data-id')) { notes[i].minimized = !notes[i].minimized; minimized = notes[i].minimized; } } Storage.set('sticky_notes', notes); body.style.display = minimized ? 'none' : 'block'; if (due) { due.style.display = minimized ? 'none' : 'block'; } button.textContent = minimized ? '+' : '−'; }
-    function togglePin(e) { var note = e.currentTarget.parentNode.parentNode, notes = Storage.get('sticky_notes', []), i; for (i = 0; i < notes.length; i += 1) { if (notes[i].id === note.getAttribute('data-id')) { notes[i].pinned = !notes[i].pinned; note.style.boxShadow = notes[i].pinned ? '0 0 0 3px #6157dc66, 0 12px 22px #64617b30' : ''; e.currentTarget.textContent = notes[i].pinned ? '◇' : '◆'; } } Storage.set('sticky_notes', notes); }
-    function toggleArchive(e) { var note = e.currentTarget.parentNode.parentNode, notes = Storage.get('sticky_notes', []), i, archived; for (i = 0; i < notes.length; i += 1) { if (notes[i].id === note.getAttribute('data-id')) { notes[i].archived = !notes[i].archived; archived = notes[i].archived; } } Storage.set('sticky_notes', notes); note.style.opacity = archived ? '0.48' : '1'; e.currentTarget.textContent = archived ? '▣' : '□'; Fsn.toast(archived ? '付箋をアーカイブしました' : 'アーカイブから戻しました'); }
-    return { render: render };
+    function bind(card) {
+        var row = Fsn.note(card.getAttribute('data-id')), buttons = card.querySelectorAll('[data-action]'), checks = card.querySelectorAll('.note-check input'), handle = card.querySelector('.resize-handle'), i;
+        for (i = 0; i < buttons.length; i += 1) {
+            buttons[i].onclick = function () {
+                var action = this.getAttribute('data-action'), value = Util.clone(row.value);
+                if (action === 'edit') { Fsn.open(row); return; }
+                if (action === 'delete') { value.deleted = true; } else { value[action] = !value[action]; }
+                Fsn.updateNote(row, value);
+            };
+        }
+        for (i = 0; i < checks.length; i += 1) {
+            checks[i].onclick = function () {
+                var value = Util.clone(row.value), lines = value.content.split('\n'), line = +this.getAttribute('data-line');
+                lines[line] = '[' + (this.checked ? 'x' : ' ') + ']' + lines[line].substring(3); value.content = lines.join('\n'); Fsn.updateNote(row, value);
+            };
+        }
+        card.onmousedown = function (e) { if (!row.value.pinned && (e.target === card || e.target.tagName === 'H3')) { drag(e, card, row, false); } };
+        if (handle) { handle.onmousedown = function (e) { drag(e, card, row, true); }; }
+    }
+    function drag(e, card, row, resize) {
+        if (Data.busy() || e.button !== 0) { return; }
+        e.preventDefault(); e.stopPropagation();
+        var x = e.clientX, y = e.clientY, left = parseInt(card.style.left, 10), top = parseInt(card.style.top, 10), width = card.offsetWidth, height = card.offsetHeight, moved = false, token = Session.token();
+        function move(event) {
+            moved = true;
+            if (resize) { card.style.width = Math.min(1500, Math.max(240, width + event.clientX - x)) + 'px'; card.style.minHeight = Math.min(1500, Math.max(150, height + event.clientY - y)) + 'px'; }
+            else { card.style.left = Math.min(5000, Math.max(0, left + event.clientX - x)) + 'px'; card.style.top = Math.min(10000, Math.max(0, top + event.clientY - y)) + 'px'; }
+        }
+        function up() {
+            document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); window.removeEventListener('blur', up);
+            if (!moved || token !== Session.token()) { return; }
+            var value = Util.clone(row.value);
+            if (resize) { value.width = card.offsetWidth; value.height = card.offsetHeight; } else { value.x = parseInt(card.style.left, 10); value.y = parseInt(card.style.top, 10); value.zIndex = Math.min(999, Math.max.apply(null, Data.state().notes.map(function (r) { return Number(r.value.zIndex) || 1; }).concat([1])) + 1); }
+            Fsn.updateNote(row, value);
+        }
+        document.addEventListener('mousemove', move); document.addEventListener('mouseup', up); window.addEventListener('blur', up);
+    }
+    return { render: render, content: content };
 }());

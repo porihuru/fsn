@@ -1,3 +1,25 @@
-var Storage = { get: function (k, f) { try { var v = window.localStorage.getItem(k); return v === null ? f : JSON.parse(v); } catch (e) { return f; } }, set: function (k, v) { try { window.localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, remove: function (k) { try { window.localStorage.removeItem(k); } catch (e) {} } };
-var Audit = { log: function (action, detail) { var items = Storage.get('sticky_audit', []), user = Storage.get('sticky_user', {}), deviceId = Storage.get('sticky_device_id', ''); items.unshift({ action: action, detail: detail || '', userId: user.userId || '', deviceId: deviceId, createdAt: new Date().toISOString() }); Storage.set('sticky_audit', items.slice(0, 500)); }, all: function () { return Storage.get('sticky_audit', []); } };
-var NotificationStore = { add: function (title, body) { var items = Storage.get('sticky_notifications', []); items.unshift({ id: 'notice-' + new Date().getTime(), icon: '＠', title: title, body: body, time: 'たった今' }); Storage.set('sticky_notifications', items.slice(0, 100)); }, all: function () { return Storage.get('sticky_notifications', []); } };
+/* Never silently replace corrupt data with an empty collection. */
+var Storage = {
+    get: function (key, fallback) {
+        var value;
+        try { value = window.localStorage.getItem(key); return value === null ? fallback : JSON.parse(value); }
+        catch (e) { throw new Error('端末保存を読み込めません（' + key + '）。元データを消さず、ブラウザ設定を確認してください。'); }
+    },
+    set: function (key, value) {
+        try { window.localStorage.setItem(key, JSON.stringify(value)); }
+        catch (e) { throw new Error('端末保存に失敗しました。空き容量・保存許可を確認してください。'); }
+    },
+    remove: function (key) { window.localStorage.removeItem(key); }
+};
+var Audit = {
+    log: function (action, relatedId) {
+        var user = Session.user(), items;
+        if (!user) { return; }
+        try {
+            items = this.all();
+            items.unshift({ action: action, detail: relatedId || '', userId: user.userId, deviceId: Session.deviceId(), createdAt: new Date().toISOString() });
+            Storage.set('fsn_audit_' + user.userId, items.slice(0, 500));
+        } catch (e) { ErrorStore.add('監査ログ', Util.message(e)); }
+    },
+    all: function () { var user = Session.user(); return user ? Storage.get('fsn_audit_' + user.userId, []) : []; }
+};

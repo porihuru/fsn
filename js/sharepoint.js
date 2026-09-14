@@ -1,82 +1,112 @@
+/* SharePoint verbose REST; no fetch/Promise/ES2015 dependency. */
 var SharePoint = (function () {
     'use strict';
-    var digest = null;
-    function endpoint(url) { return (APP_CONFIG.SHAREPOINT_BASE_URL || '') + url; }
+    var digest = null, digestUntil = 0, waiting = null, types = {};
+    function endpoint(url) {
+        var base = String(APP_CONFIG.SHAREPOINT_BASE_URL || '').replace(/\/+$/, '');
+        if (!/^https?:\/\/[^/?#]+(?:\/[^?#]*)?$/.test(base)) { throw new Error('SharePointサイトURLが不正です。'); }
+        if (url.indexOf('/_api/') === 0) { return base + url; }
+        if (url.indexOf(base + '/_api/') === 0) { return url; }
+        /* A paging link must never receive credentials or a digest on another site. */
+        var anchor = document.createElement('a'); anchor.href = base;
+        if (url.indexOf('/') === 0 && (anchor.protocol + '//' + anchor.host + url).indexOf(base + '/_api/') === 0) { return anchor.protocol + '//' + anchor.host + url; }
+        throw new Error('別サイトを指すREST URLを拒否しました。');
+    }
     function request(method, url, data, headers, callback) {
-        var xhr = new XMLHttpRequest(), key;
-        xhr.open(method, endpoint(url), true);
-        xhr.setRequestHeader('Accept', 'application/json;odata=verbose');
-        if (data) { xhr.setRequestHeader('Content-Type', 'application/json;odata=verbose'); }
-        for (key in (headers || {})) { if (headers.hasOwnProperty(key)) { xhr.setRequestHeader(key, headers[key]); } }
-        xhr.onreadystatechange = function () {
-            var result;
-            if (xhr.readyState !== 4) { return; }
-            result = { ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data: null, raw: xhr.responseText };
-            try { result.data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch (ignore) { result.data = xhr.responseText; }
-            if (!result.ok && window.ErrorStore) { ErrorStore.add('SharePoint REST', method + ' ' + url + '（HTTP ' + xhr.status + '）', xhr.responseText); }
-            if (callback) { callback(result); }
-        };
-        xhr.send(data ? JSON.stringify(data) : null);
-    }
-    function getRequestDigest(callback) {
-        if (digest) { callback({ ok: true, value: digest }); return; }
-        request('POST', '/_api/contextinfo', null, {}, function (result) {
-            if (result.ok && result.data && result.data.d && result.data.d.GetContextWebInformation) { digest = result.data.d.GetContextWebInformation.FormDigestValue; }
-            callback({ ok: !!digest, value: digest, result: result });
-        });
-    }
-    function write(method, url, data, callback, extraHeaders) {
-        getRequestDigest(function (token) {
-            if (!token.ok) { if (callback) { callback({ ok: false, status: 0, error: 'RequestDigestを取得できませんでした。' }); } return; }
-            var headers = { 'X-RequestDigest': token.value };
-            if (extraHeaders) { var key; for (key in extraHeaders) { if (extraHeaders.hasOwnProperty(key)) { headers[key] = extraHeaders[key]; } } }
-            request(method, url, data, headers, callback);
-        });
+        var xhr, key, finished = false;
+        function finish(result) {
+            if (finished) { return; } finished = true;
+            if (!result.ok) { ErrorStore.add('SharePoint REST', result.error || ('HTTP ' + result.status), method + ' ' + url.split('?')[0]); }
+            callback(result);
+        }
+        try {
+            xhr = new XMLHttpRequest();
+            xhr.open(method, endpoint(url), true); xhr.timeout = 30000; xhr.withCredentials = true;
+            xhr.setRequestHeader('Accept', 'application/json;odata=verbose');
+            if (data !== null) { xhr.setRequestHeader('Content-Type', 'application/json;odata=verbose'); }
+            for (key in headers) { if (Object.prototype.hasOwnProperty.call(headers, key)) { xhr.setRequestHeader(key, headers[key]); } }
+            xhr.onload = function () {
+                var status = xhr.status === 1223 ? 204 : xhr.status, parsed = null;
+                if (status < 200 || status >= 300) {
+                    finish({ ok: false, status: status, error: status === 412 ? '別の操作で更新されました。再読み込みしてください。' : 'HTTP ' + status + '：' + ({ 401: '認証を確認してください。', 403: '権限またはRequestDigestを確認してください。', 404: 'サイト・リスト・列名を確認してください。', 429: 'アクセスが集中しています。時間をおいて再試行してください。' }[status] || 'SharePoint処理に失敗しました。') }); return;
+                }
+                try { parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null; }
+                catch (e) { finish({ ok: false, status: status, error: 'JSONではない応答です。ログイン画面への転送やHTML配置制限を確認してください。' }); return; }
+                finish({ ok: true, status: status, data: parsed, etag: xhr.getResponseHeader('ETag') });
+            };
+            xhr.onerror = function () { finish({ ok: false, status: 0, error: '通信失敗：接続先・同一オリジン・CORS・証明書を確認してください。' }); };
+            xhr.ontimeout = function () { finish({ ok: false, status: 0, error: '通信がタイムアウトしました。書き込み結果を再読み込みして確認してください。' }); };
+            xhr.onabort = function () { finish({ ok: false, status: 0, error: '通信が中断されました。' }); };
+            xhr.send(data === null ? null : JSON.stringify(data));
+        } catch (e) { finish({ ok: false, status: 0, error: Util.message(e) }); }
     }
     function get(url, callback) { request('GET', url, null, {}, callback); }
-    function post(url, data, callback) { write('POST', url, data, callback); }
-    function update(url, data, etag, callback) { write('POST', url, data, callback, { 'IF-MATCH': etag || '*', 'X-HTTP-Method': 'MERGE' }); }
-    function remove(url, etag, callback) { write('POST', url, null, callback, { 'IF-MATCH': etag || '*', 'X-HTTP-Method': 'DELETE' }); }
-    function listItems(listTitle, query, callback) { var url = "/_api/web/lists/getbytitle('" + encodeURIComponent(listTitle) + "')/items" + (query || ''); get(url, callback); }
-    function getListItemEntityType(listTitle, callback) { get("/_api/web/lists/getbytitle('" + encodeURIComponent(listTitle) + "')?$select=ListItemEntityTypeFullName", function (result) { callback(result.ok && result.data && result.data.d ? result.data.d.ListItemEntityTypeFullName : null, result); }); }
-    function createListItem(listTitle, fields, callback) { getListItemEntityType(listTitle, function (entityType, entityResult) { var payload, key; if (!entityType) { callback({ ok: false, result: entityResult }); return; } payload = { '__metadata': { type: entityType } }; for (key in fields) { if (fields.hasOwnProperty(key)) { payload[key] = fields[key]; } } post("/_api/web/lists/getbytitle('" + encodeURIComponent(listTitle) + "')/items", payload, callback); }); }
-    function allPages(url, callback, results) { results = results || []; get(url, function (result) { var next; if (!result.ok) { callback(result); return; } if (result.data && result.data.d && result.data.d.results) { results = results.concat(result.data.d.results); } next = result.data && result.data.d ? result.data.d.__next : null; if (next) { allPages(next, callback, results); } else { callback({ ok: true, status: result.status, data: results }); } }); }
-    function getCurrentUser(callback) { get('/_api/web/currentuser', function (result) { var user = null; if (result.ok && result.data && result.data.d) { user = { sharePointUserId: result.data.d.Id, loginName: result.data.d.LoginName, displayName: result.data.d.Title || result.data.d.LoginName }; } callback({ ok: result.ok, user: user, result: result }); }); }
-    return { get: get, post: post, update: update, remove: remove, getRequestDigest: getRequestDigest, listItems: listItems, createListItem: createListItem, allPages: allPages, getCurrentUser: getCurrentUser, clearDigest: function () { digest = null; } };
+    function getRequestDigest(callback) {
+        if (digest && digestUntil > new Date().getTime()) { callback({ ok: true, value: digest }); return; }
+        if (waiting) { waiting.push(callback); return; }
+        waiting = [callback];
+        request('POST', '/_api/contextinfo', null, {}, function (result) {
+            var info = result.data && result.data.d && result.data.d.GetContextWebInformation, callbacks = waiting, i, answer;
+            waiting = null;
+            if (result.ok && info && info.FormDigestValue) {
+                digest = info.FormDigestValue; digestUntil = new Date().getTime() + Math.max(1, (Number(info.FormDigestTimeoutSeconds) || 60) - 15) * 1000;
+                answer = { ok: true, value: digest };
+            } else { answer = { ok: false, status: result.status, error: result.error || 'RequestDigestが応答にありません。' }; }
+            for (i = 0; i < callbacks.length; i += 1) { callbacks[i](answer); }
+        });
+    }
+    function write(url, data, headers, callback) {
+        getRequestDigest(function (result) {
+            if (!result.ok) { callback(result); return; }
+            headers['X-RequestDigest'] = result.value;
+            request('POST', url, data, headers, function (answer) { if (answer.status === 403) { digest = null; } callback(answer); });
+        });
+    }
+    function literal(value) { return "'" + encodeURIComponent(String(value).replace(/'/g, "''")).replace(/'/g, '%27') + "'"; }
+    function listUrl(title) { return '/_api/web/lists/getbytitle(' + literal(title) + ')'; }
+    function itemUrl(title, id) { if (!/^\d+$/.test(String(id))) { throw new Error('リストIDが不正です。'); } return listUrl(title) + '/items(' + id + ')'; }
+    function rows(url, callback) {
+        var collected = [], seen = {};
+        function next(link) {
+            if (seen[link]) { callback({ ok: false, error: 'ページ送りが循環しています。' }); return; } seen[link] = true;
+            get(link, function (result) {
+                var data = result.data && result.data.d;
+                if (!result.ok) { callback(result); return; }
+                if (!data || !Array.isArray(data.results)) { callback({ ok: false, error: 'リスト応答形式が不正です。' }); return; }
+                collected = collected.concat(data.results);
+                if (data.__next) { next(data.__next); } else { callback({ ok: true, data: collected }); }
+            });
+        }
+        next(url);
+    }
+    function payload(title, fields, callback) {
+        function done(type) { var data = Util.clone(fields); data.__metadata = { type: type }; callback(null, data); }
+        if (types[title]) { done(types[title]); return; }
+        get(listUrl(title) + '?$select=ListItemEntityTypeFullName', function (result) {
+            var type = result.data && result.data.d && result.data.d.ListItemEntityTypeFullName;
+            if (!result.ok || !type) { callback(result.error || 'リストの型を確認できません。'); return; }
+            types[title] = type; done(type);
+        });
+    }
+    function create(title, fields, callback) { payload(title, fields, function (error, data) { if (error) { callback({ ok: false, error: error }); return; } write(listUrl(title) + '/items', data, {}, callback); }); }
+    function updateItem(title, row, fields, callback) {
+        var etag = row.__metadata && row.__metadata.etag;
+        if (!etag) { callback({ ok: false, error: '競合確認用ETagがありません。再読み込みしてください。' }); return; }
+        payload(title, fields, function (error, data) { if (error) { callback({ ok: false, error: error }); return; } write(itemUrl(title, row.Id), data, { 'IF-MATCH': etag, 'X-HTTP-Method': 'MERGE' }, callback); });
+    }
+    function deleteItem(title, row, callback) {
+        var etag = row.__metadata && row.__metadata.etag;
+        if (!etag) { callback({ ok: false, error: '削除対象のETagがありません。' }); return; }
+        write(itemUrl(title, row.Id), null, { 'IF-MATCH': etag, 'X-HTTP-Method': 'DELETE' }, callback);
+    }
+    return { get: get, listUrl: listUrl, itemUrl: itemUrl, literal: literal, allPages: rows, getRequestDigest: getRequestDigest, createListItem: create, updateItem: updateItem, deleteItem: deleteItem,
+        listItems: function (title, query, cb) { rows(listUrl(title) + '/items' + (query || ''), cb); },
+        getCurrentUser: function (cb) { get('/_api/web/currentuser', function (r) { var d = r.data && r.data.d; cb(r.ok && d ? null : new Error(r.error || 'ログイン利用者を取得できません。'), d); }); }
+    };
 }());
 
-/* Specification-compatible aliases. */
-function spGet(url, callback) { SharePoint.get(url, callback); }
-function spPost(url, data, callback) { SharePoint.post(url, data, callback); }
-function spUpdate(url, data, etag, callback) { SharePoint.update(url, data, etag, callback); }
-function spDelete(url, etag, callback) { SharePoint.remove(url, etag, callback); }
-function getRequestDigest(callback) { SharePoint.getRequestDigest(callback); }
-
+/* Read-only diagnostics. Lists and columns are created manually by an administrator. */
 var SharePointSetup = (function () {
-    function listUrl(title) { return "/_api/web/lists/getbytitle('" + encodeURIComponent(title) + "')"; }
-    function ensureList(title, callback) {
-        SharePoint.get(listUrl(title), function (result) {
-            if (result.ok) { callback({ ok: true, existing: true }); return; }
-            SharePoint.post('/_api/web/lists', { '__metadata': { type: 'SP.List' }, BaseTemplate: 100, Title: title, AllowContentTypes: true }, function (created) { callback({ ok: created.ok, existing: false, result: created }); });
-        });
-    }
-    function ensureField(listTitle, field, callback) {
-        SharePoint.get(listUrl(listTitle) + "/fields/getbyinternalnameortitle('" + encodeURIComponent(field.name) + "')", function (found) {
-            if (found.ok) { callback({ ok: true, existing: true }); return; }
-            SharePoint.post(listUrl(listTitle) + '/fields', { '__metadata': { type: field.type }, Title: field.name, FieldTypeKind: field.kind, Required: !!field.required }, function (created) { callback({ ok: created.ok, existing: false, result: created }); });
-        });
-    }
-    function provisionDefinition(definition, callback) {
-        ensureList(definition.title, function (listResult) {
-            if (!listResult.ok) { callback(listResult); return; }
-            var index = 0;
-            function next() {
-                if (index >= definition.fields.length) { callback({ ok: true }); return; }
-                ensureField(definition.title, definition.fields[index], function (fieldResult) { index += 1; if (!fieldResult.ok) { callback(fieldResult); return; } next(); });
-            }
-            next();
-        });
-    }
     var definitions = [
         { title: 'StickyUsers', fields: [{ name: 'StickyUserId', type: 'SP.FieldText', kind: 2, required: true }, { name: 'SharePointUserId', type: 'SP.FieldText', kind: 2 }, { name: 'LoginName', type: 'SP.FieldText', kind: 2 }, { name: 'Organization', type: 'SP.FieldText', kind: 2 }, { name: 'DisplayName', type: 'SP.FieldText', kind: 2 }, { name: 'PasswordHash', type: 'SP.FieldNote', kind: 3 }, { name: 'PasswordSalt', type: 'SP.FieldText', kind: 2 }, { name: 'PublicKey', type: 'SP.FieldNote', kind: 3 }, { name: 'EncryptedPrivateKey', type: 'SP.FieldNote', kind: 3 }, { name: 'CryptoVersion', type: 'SP.FieldText', kind: 2 }, { name: 'CurrentSessionHash', type: 'SP.FieldText', kind: 2 }, { name: 'CurrentDeviceId', type: 'SP.FieldText', kind: 2 }, { name: 'LastLoginAt', type: 'SP.FieldDateTime', kind: 4 }, { name: 'Enabled', type: 'SP.FieldBoolean', kind: 8 }] },
         { title: 'StickySessions', fields: [{ name: 'UserId', type: 'SP.FieldText', kind: 2, required: true }, { name: 'DeviceId', type: 'SP.FieldText', kind: 2 }, { name: 'TokenHash', type: 'SP.FieldText', kind: 2 }, { name: 'CreatedAt', type: 'SP.FieldDateTime', kind: 4 }, { name: 'LastAccessAt', type: 'SP.FieldDateTime', kind: 4 }, { name: 'ExpiresAt', type: 'SP.FieldDateTime', kind: 4 }, { name: 'Revoked', type: 'SP.FieldBoolean', kind: 8 }, { name: 'UserAgent', type: 'SP.FieldNote', kind: 3 }] },
@@ -90,80 +120,70 @@ var SharePointSetup = (function () {
         { title: 'StickyGroupMembers', fields: [{ name: 'GroupKey', type: 'SP.FieldText', kind: 2, required: true }, { name: 'UserId', type: 'SP.FieldText', kind: 2, required: true }, { name: 'Enabled', type: 'SP.FieldBoolean', kind: 8 }] },
         { title: 'StickyNotifications', fields: [{ name: 'RecipientUserId', type: 'SP.FieldText', kind: 2 }, { name: 'NotificationType', type: 'SP.FieldText', kind: 2 }, { name: 'RelatedId', type: 'SP.FieldText', kind: 2 }, { name: 'SenderUserId', type: 'SP.FieldText', kind: 2 }, { name: 'IsRead', type: 'SP.FieldBoolean', kind: 8 }] }
     ];
-    function provisionCoreLists(callback) {
-        var index = 0;
-        function next(result) { if (result && !result.ok) { callback(result); return; } if (index >= definitions.length) { callback({ ok: true }); return; } provisionDefinition(definitions[index], function (itemResult) { index += 1; next(itemResult); }); }
-        next();
-    }
-    return { provisionCoreLists: provisionCoreLists, definitions: definitions };
-}());
 
-var StickyUsersApi = (function () {
-    function escapeOData(value) { return String(value || '').replace(/'/g, "''"); }
-    function ensureUser(user, callback) {
-        var filter = "?$select=Id,StickyUserId&$filter=LoginName eq '" + escapeOData(user.loginName) + "'";
-        SharePoint.listItems('StickyUsers', filter, function (result) {
-            var records = result.ok && result.data && result.data.d ? result.data.d.results : [];
-            if (records && records.length) { callback({ ok: true, itemId: records[0].Id, stickyUserId: records[0].StickyUserId, existing: true }); return; }
-            SharePoint.createListItem('StickyUsers', { Title: user.displayName, StickyUserId: user.userId, SharePointUserId: String(user.sharePointUserId || ''), LoginName: user.loginName, Organization: user.organization || '', DisplayName: user.displayName, PublicKey: user.publicKey || '', CryptoVersion: user.publicKey ? StickyCrypto.VERSION : '', Enabled: true }, function (created) {
-                callback({ ok: created.ok, itemId: created.data && created.data.d ? created.data.d.Id : null, stickyUserId: user.userId, existing: false, result: created });
-            });
-        });
-    }
-    function findByDisplayNames(names, callback) {
-        var index = 0, found = [];
-        function next() {
-            var name, filter;
-            if (index >= names.length) { callback({ ok: true, users: found }); return; }
-            name = names[index];
-            filter = "?$select=StickyUserId,DisplayName,PublicKey&$filter=DisplayName eq '" + escapeOData(name) + "'";
-            SharePoint.listItems('StickyUsers', filter, function (result) {
-                var records = result.ok && result.data && result.data.d ? result.data.d.results : [];
-                if (!result.ok || !records.length || !records[0].PublicKey) { callback({ ok: false, message: '宛先の公開鍵が見つかりません：' + name }); return; }
-                found.push(records[0]);
-                index += 1;
+    function check(callback) {
+        var failures = [];
+        Util.each(definitions, function (definition, next) {
+            SharePoint.get(SharePoint.listUrl(definition.title) + '/fields?$select=InternalName,FieldTypeKind,RichText', function (r) {
+                var rows = r.data && r.data.d && r.data.d.results || [], i, j, found;
+                if (!r.ok) { failures.push(definition.title + ': ' + r.error); next(); return; }
+                for (i = 0; i < definition.fields.length; i += 1) {
+                    found = null;
+                    for (j = 0; j < rows.length; j += 1) { if (rows[j].InternalName === definition.fields[i].name) { found = rows[j]; } }
+                    if (!found || found.FieldTypeKind !== definition.fields[i].kind || (found.FieldTypeKind === 3 && found.RichText)) { failures.push(definition.title + '.' + definition.fields[i].name + ': 列不足・型不一致・リッチテキスト設定'); }
+                }
                 next();
             });
-        }
-        next();
+        }, function () { var i; for (i = 0; i < failures.length; i += 1) { ErrorStore.add('リスト診断', failures[i]); } callback(failures); });
     }
-    return { ensureUser: ensureUser, findByDisplayNames: findByDisplayNames };
+    return { definitions: definitions, check: check };
 }());
 
-var StickyGroupsApi = (function () {
-    function escapeOData(value) { return String(value || '').replace(/'/g, "''"); }
-    function ensureMembership(groupKey, userId, callback) {
-        var groupFilter = "?$select=Id&$filter=GroupKey eq '" + escapeOData(groupKey) + "'";
-        SharePoint.listItems('StickyGroups', groupFilter, function (groupResult) {
-            var groups = groupResult.ok && groupResult.data && groupResult.data.d ? groupResult.data.d.results : [];
-            function member() {
-                var memberFilter = "?$select=Id&$filter=GroupKey eq '" + escapeOData(groupKey) + "' and UserId eq '" + escapeOData(userId) + "'";
-                SharePoint.listItems('StickyGroupMembers', memberFilter, function (memberResult) {
-                    var members = memberResult.ok && memberResult.data && memberResult.data.d ? memberResult.data.d.results : [];
-                    if (members.length) { callback({ ok: true, existing: true }); return; }
-                    SharePoint.createListItem('StickyGroupMembers', { Title: groupKey + ':' + userId, GroupKey: groupKey, UserId: userId, Enabled: true }, callback);
-                });
-            }
-            if (groups.length) { member(); return; }
-            SharePoint.createListItem('StickyGroups', { Title: groupKey, GroupKey: groupKey, DisplayName: groupKey, Enabled: true }, function (created) { if (!created.ok) { callback(created); return; } member(); });
-        });
+/* Identical callback contract in local and SharePoint modes. Filters are explicit. */
+var Records = {
+    list: function (title, filter, predicate, callback) {
+        if (APP_CONFIG.USE_SHAREPOINT) {
+            SharePoint.listItems(title, '?$top=500' + (filter ? '&$filter=' + filter : ''), function (r) { callback(r.ok ? null : new Error(r.error), r.data); });
+        } else {
+            try { callback(null, Storage.get('fsn_table_' + title, []).filter(predicate || function () { return true; })); }
+            catch (e) { callback(e); }
+        }
+    },
+    get: function (title, id, callback) {
+        this.list(title, 'Id eq ' + Number(id), function (r) { return String(r.Id) === String(id); }, function (e, rows) { callback(e || (!rows.length ? new Error('対象が見つかりません。') : null), rows && rows[0]); });
+    },
+    save: function (title, row, fields, callback) {
+        if (APP_CONFIG.USE_SHAREPOINT) {
+            var finish = function (r) {
+                if (!r.ok) { callback(new Error(r.error || '保存に失敗しました。')); return; }
+                var saved = r.data && r.data.d;
+                Records.get(title, saved && saved.Id || row.Id, callback);
+            };
+            if (row) { SharePoint.updateItem(title, row, fields, finish); } else { SharePoint.createListItem(title, fields, finish); }
+        } else {
+            try {
+                var rows = Storage.get('fsn_table_' + title, []), saved = null, i, key, max = 0;
+                for (i = 0; i < rows.length; i += 1) {
+                    max = Math.max(max, rows[i].Id);
+                    if (row && row.Id === rows[i].Id) {
+                        if (row._rev !== rows[i]._rev) { throw new Error('別の操作で更新されました。再読み込みしてください。'); }
+                        saved = rows[i];
+                    }
+                }
+                if (row && !saved) { throw new Error('更新対象が削除されています。'); }
+                if (!saved) { saved = { Id: max + 1, _rev: 0 }; rows.push(saved); }
+                for (key in fields) { if (Object.prototype.hasOwnProperty.call(fields, key)) { saved[key] = fields[key]; } }
+                saved._rev += 1; Storage.set('fsn_table_' + title, rows); callback(null, Util.clone(saved));
+            } catch (e) { callback(e); }
+        }
+    },
+    remove: function (title, row, callback) {
+        if (APP_CONFIG.USE_SHAREPOINT) { SharePoint.deleteItem(title, row, function (r) { callback(r.ok ? null : new Error(r.error)); }); return; }
+        try {
+            var rows = Storage.get('fsn_table_' + title, []), found = false;
+            rows = rows.filter(function (r) { if (r.Id !== row.Id) { return true; } if (r._rev !== row._rev) { throw new Error('削除対象が更新されています。'); } found = true; return false; });
+            if (!found) { throw new Error('削除対象がありません。'); }
+            Storage.set('fsn_table_' + title, rows); callback(null);
+        } catch (e) { callback(e); }
     }
-    function findMembers(groupKey, callback) {
-        SharePoint.listItems('StickyGroupMembers', "?$select=UserId&$filter=GroupKey eq '" + escapeOData(groupKey) + "' and Enabled eq 1", function (result) {
-            var members = result.ok && result.data && result.data.d ? result.data.d.results : [], index = 0, users = [];
-            function next() {
-                var userId;
-                if (index >= members.length) { callback({ ok: result.ok, users: users }); return; }
-                userId = members[index].UserId;
-                SharePoint.listItems('StickyUsers', "?$select=StickyUserId,DisplayName,PublicKey&$filter=StickyUserId eq '" + escapeOData(userId) + "'", function (userResult) {
-                    var records = userResult.ok && userResult.data && userResult.data.d ? userResult.data.d.results : [];
-                    if (records.length && records[0].PublicKey) { users.push(records[0]); }
-                    index += 1;
-                    next();
-                });
-            }
-            next();
-        });
-    }
-    return { ensureMembership: ensureMembership, findMembers: findMembers };
-}());
+};
