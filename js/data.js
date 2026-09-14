@@ -88,7 +88,8 @@ var Data = (function () {
         Session.guard(function (error) { if (error) { finish(error); return; } try { work(finish); } catch (e) { finish(e); } });
     }
     function validateNote(value) {
-        if (!Util.trim(value.title) && !Util.trim(value.content)) { throw new Error('タイトルまたは本文を入力してください。'); }
+        value.content = NoteMarkup.normalize(value.content);
+        if (!Util.trim(value.title) && !Util.trim(NoteMarkup.plain(value.content)) && !/<table>/.test(value.content)) { throw new Error('タイトルまたは本文を入力してください。'); }
         if (String(value.title).length > 200 || String(value.content).length > 20000) { throw new Error('タイトル200文字・本文20000文字以内で入力してください。'); }
         if (!Util.date(value.due)) { throw new Error('期限は実在する日付を YYYY-MM-DD で入力してください。'); }
         if (value.status && ['未着手', '対応中', '保留', '完了'].indexOf(value.status) === -1) { throw new Error('タスクの状態が不正です。'); }
@@ -99,6 +100,14 @@ var Data = (function () {
         Records.save(APP_CONFIG.LIST_NOTIFICATIONS, null, { Title: 'notice', RecipientUserId: userId, NotificationType: type, RelatedId: String(relatedId), SenderUserId: actor(), IsRead: false }, function (e) {
             if (e) { ErrorStore.add('通知作成', Util.message(e), '本体の保存は成功しました。'); } callback();
         });
+    }
+    function nextNoteLayer() {
+        var highest = 0;
+        state.notes.forEach(function (row) {
+            var layer = Number(row.value.zIndex);
+            if (row.NoteType === 'PERSONAL' && row.SenderUserId === actor() && isFinite(layer)) { highest = Math.max(highest, layer); }
+        });
+        return highest + 1;
     }
     function saveNote(row, value, recipientsText, type, callback) {
         mutate(type === 'DIRECT' ? 'SEND_NOTE' : 'SAVE_NOTE', function (finish) {
@@ -111,6 +120,7 @@ var Data = (function () {
                 Records.save(APP_CONFIG.LIST_NOTES, row, { EncryptedPayload: JSON.stringify(StickyCrypto.encryptJson(value, key)), Deleted: !!value.deleted, Archived: !!value.archived }, function (e) { finish(e, row.Id); });
                 return;
             }
+            if (!type || type === 'PERSONAL') { value.zIndex = nextNoteLayer(); }
             Auth.directory(function (directoryError, users) {
                 if (directoryError) { finish(directoryError); return; }
                 var targets, envelope, sender = Session.user();
@@ -215,5 +225,5 @@ var Data = (function () {
         }, callback);
     }
     return { state: function () { return state; }, reset: reset, refresh: refresh, busy: function () { return busy; }, resolve: resolve, seal: seal, unseal: unseal, validateNote: validateNote,
-        saveNote: saveNote, readNote: readNote, savePost: savePost, comment: comment, react: react, view: view, readNotifications: readNotifications };
+        nextNoteLayer: nextNoteLayer, saveNote: saveNote, readNote: readNote, savePost: savePost, comment: comment, react: react, view: view, readNotifications: readNotifications };
 }());

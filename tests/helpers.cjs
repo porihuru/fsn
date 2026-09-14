@@ -12,8 +12,8 @@ function memory() {
   const map = new Map();
   return { get length() { return map.size; }, key: i => [...map.keys()][i], getItem: k => map.has(k) ? map.get(k) : null, setItem: (k,v) => map.set(k,String(v)), removeItem: k => map.delete(k), map };
 }
-function app({ storage = memory(), browserCrypto = false, init = false } = {}) {
-  const dom = new JSDOM(html, { url: 'https://example.test/sticky/index.html', runScripts: 'outside-only', pretendToBeVisual: true });
+function app({ storage = memory(), browserCrypto = false, init = false, url = 'https://example.test/sticky/index.html' } = {}) {
+  const dom = new JSDOM(html, { url, runScripts: 'outside-only', pretendToBeVisual: true });
   const w = dom.window;
   Object.defineProperty(w, 'localStorage', { value: storage });
   Object.defineProperty(w.navigator, 'userAgent', { value: 'Mozilla/5.0 Edg/95.0.1020.30' });

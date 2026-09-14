@@ -69,5 +69,16 @@ var StickyCrypto = (function () {
     function decryptRecipientKey(encryptedKey, privateKeyPem) { var key; requireForge(); key = forge.pki.privateKeyFromPem(privateKeyPem); return key.decrypt(fromBase64(encryptedKey), 'RSA-OAEP', { md: forge.md.sha256.create(), mgf1: { md: forge.md.sha256.create() } }); }
     function createUserKeyMaterial(password) { var pair = generateRsaKeyPair(), salt = randomBytes(16), key = derivePasswordKey(password, salt, iterations, 'utf8'); return { version: version, iterations: iterations, encoding: 'utf8', publicKey: exportPublicKey(pair.publicKey), privateKeyPayload: encryptJson({ privateKey: exportPrivateKey(pair.privateKey) }, key), privateKeySalt: toBase64(salt) }; }
     function unlockUserPrivateKey(password, material) { var key, data; if (!material || material.version !== version || !material.privateKeySalt || !material.privateKeyPayload) { throw new Error('ユーザー鍵が見つかりません。'); } key = derivePasswordKey(password, fromBase64(material.privateKeySalt), material.iterations, material.encoding); data = decryptJson(material.privateKeyPayload, key); return data.privateKey; }
-    return { VERSION: version, ITERATIONS: iterations, available: available, randomBytes: randomBytes, createPasswordRecord: createPasswordRecord, verifyPassword: verifyPassword, encryptJson: encryptJson, decryptJson: decryptJson, generateContentKey: generateContentKey, generateRsaKeyPair: generateRsaKeyPair, exportPublicKey: exportPublicKey, exportPrivateKey: exportPrivateKey, encryptKeyForRecipient: encryptKeyForRecipient, decryptRecipientKey: decryptRecipientKey, createUserKeyMaterial: createUserKeyMaterial, unlockUserPrivateKey: unlockUserPrivateKey };
+    function keyMatches(privateKeyPem, publicKeyPem) {
+        var privateKey = forge.pki.privateKeyFromPem(privateKeyPem), publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
+        return privateKey.n.compareTo(publicKey.n) === 0 && privateKey.e.compareTo(publicKey.e) === 0;
+    }
+    function rewrapUserKey(password, privateKey, publicKey) {
+        if (!keyMatches(privateKey, publicKey)) { throw new Error('復旧対象の公開鍵と秘密鍵が一致しません。'); }
+        var salt = randomBytes(16), key = derivePasswordKey(password, salt, iterations, 'utf8');
+        var material = { version: version, iterations: iterations, encoding: 'utf8', publicKey: publicKey, privateKeySalt: toBase64(salt), privateKeyPayload: encryptJson({ privateKey: privateKey }, key) };
+        if (unlockUserPrivateKey(password, material) !== privateKey) { throw new Error('秘密鍵の再暗号化を検証できません。'); }
+        return material;
+    }
+    return { VERSION: version, ITERATIONS: iterations, available: available, randomBytes: randomBytes, createPasswordRecord: createPasswordRecord, verifyPassword: verifyPassword, encryptJson: encryptJson, decryptJson: decryptJson, generateContentKey: generateContentKey, generateRsaKeyPair: generateRsaKeyPair, exportPublicKey: exportPublicKey, exportPrivateKey: exportPrivateKey, encryptKeyForRecipient: encryptKeyForRecipient, decryptRecipientKey: decryptRecipientKey, createUserKeyMaterial: createUserKeyMaterial, unlockUserPrivateKey: unlockUserPrivateKey, keyMatches: keyMatches, rewrapUserKey: rewrapUserKey };
 }());

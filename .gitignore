@@ -1,3 +1,4 @@
 node_modules/
 test-results/
 *.log
+fsn-admin-recovery-key*.json

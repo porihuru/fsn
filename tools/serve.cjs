@@ -10,7 +10,7 @@ http.createServer((req, res) => {
   try { pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); }
   catch { res.writeHead(400); res.end(); return; }
   const relative = pathname === '/' ? 'index.html' : pathname.slice(1);
-  if (!/^(index\.html|login\.html|(?:js|css)\/[A-Za-z0-9_.-]+|\.vendor\/package\/dist\/forge\.min\.js)$/.test(relative)) { res.writeHead(404); res.end(); return; }
+  if (!/^(index\.html|login\.html|admin\.html|(?:js|css)\/[A-Za-z0-9_.-]+|\.vendor\/package\/dist\/forge\.min\.js)$/.test(relative)) { res.writeHead(404); res.end(); return; }
   fs.readFile(path.join(root, relative), (error, data) => {
     if (error) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'Content-Type': mime[path.extname(relative)] || 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });

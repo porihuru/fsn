@@ -1,14 +1,3 @@
-function sanitizeHtml(value) {
-    var allowed = { P: 1, BR: 1, B: 1, STRONG: 1, U: 1, S: 1, SPAN: 1, TABLE: 1, TBODY: 1, THEAD: 1, TR: 1, TD: 1, TH: 1, UL: 1, OL: 1, LI: 1 };
-    var box = document.createElement('div'), nodes, i, j;
-    box.innerHTML = String(value || '');
-    nodes = box.getElementsByTagName('*');
-    for (i = nodes.length - 1; i >= 0; i -= 1) {
-        if (!allowed[nodes[i].tagName]) { nodes[i].parentNode.removeChild(nodes[i]); continue; }
-        for (j = nodes[i].attributes.length - 1; j >= 0; j -= 1) { nodes[i].removeAttribute(nodes[i].attributes[j].name); }
-    }
-    return box.innerHTML;
-}
 var Fsn = (function () {
     'use strict';
     var currentTab = 'stickies', editor = null, archived = false, unread = false, toastTimer, refreshing = false, initialized = false, returnFocus;
@@ -29,7 +18,7 @@ var Fsn = (function () {
         else if (Views[currentTab]) { Views[currentTab](); }
         else if (currentTab === 'errors') { renderErrors(); }
         else if (currentTab === 'audit') { id('audit-list').innerHTML = Audit.all().map(function (r) { return '<div class="notification-row"><div><strong>' + Util.esc(r.action) + '</strong><p>' + Util.esc(r.detail) + '</p><small>' + Util.esc(r.createdAt) + '</small></div></div>'; }).join('') || '<p>履歴はありません。</p>'; }
-        else if (currentTab === 'settings') { id('profile-name').value = Session.user().DisplayName; id('profile-org').value = Session.user().Organization; }
+        else if (currentTab === 'settings') { id('profile-name').value = Session.user().DisplayName; id('profile-org').value = Session.user().Organization; var until = Session.rememberedUntil(); id('trusted-device-status').textContent = until ? '自動ログインを保存しています。有効期限：' + until.substring(0, 10) : 'この端末の自動ログインは保存されていません。'; }
         id('recipient-users').innerHTML = Data.state().users.map(function (r) { return '<option value="@' + Util.esc(r.StickyUserId) + '">' + Util.esc(r.DisplayName + ' / ' + r.Organization) + '</option>'; }).join('');
     }
     function tab(name) {
@@ -46,11 +35,11 @@ var Fsn = (function () {
         var value = Util.clone(initial || row && row.value || { title: '', content: '', color: 'yellow', due: '', x: 30, y: 30, width: 250, height: 180 });
         editor = { row: row || null, mode: mode, value: value };
         returnFocus = document.activeElement;
-        id('note-title').value = value.title || ''; id('note-content').value = value.content || ''; id('note-color').value = Util.color(value.color); id('note-due').value = value.due || ''; id('task-state').value = value.status || '未着手';
+        id('note-title').value = value.title || ''; NoteEditor.set(value.content || '', mode === 'read'); id('note-color').value = Util.color(value.color); id('note-due').value = value.due || ''; id('task-state').value = value.status || '未着手';
         id('note-recipient').value = ''; id('recipient-label').style.display = mode === 'send' ? 'block' : 'none';
         id('task-state-label').style.display = mode === 'task' ? 'block' : 'none';
         id('editor-title').textContent = { read: '読み取り専用', send: '付箋を送る', task: 'タスク', personal: row ? '付箋を編集' : '新しい付箋' }[mode];
-        id('note-title').readOnly = mode === 'read'; id('note-content').readOnly = mode === 'read';
+        id('note-title').readOnly = mode === 'read';
         id('note-color').disabled = mode === 'read'; id('note-due').disabled = mode === 'read';
         id('editor-save').disabled = false; id('editor-save').style.display = mode === 'read' ? 'none' : '';
         id('editor-save').textContent = mode === 'send' ? '送信する' : '保存する';
@@ -62,12 +51,12 @@ var Fsn = (function () {
     function close(force) {
         if (Data.busy() && !force) { toast('処理が終わるまでお待ちください。'); return; }
         editor = null; id('editor-modal').className = 'modal-backdrop';
-        id('note-content').value = ''; id('note-title').value = ''; id('note-recipient').value = '';
+        NoteEditor.clear(); id('note-title').value = ''; id('note-recipient').value = '';
         if (returnFocus && returnFocus.focus) { returnFocus.focus(); }
     }
     function formValue() {
         var value = Util.clone(editor.value);
-        value.title = id('note-title').value; value.content = id('note-content').value; value.color = id('note-color').value; value.due = id('note-due').value;
+        value.title = id('note-title').value; value.content = NoteEditor.get(); value.color = id('note-color').value; value.due = id('note-due').value;
         if (editor.mode === 'task') { value.status = id('task-state').value; }
         return value;
     }
@@ -90,15 +79,23 @@ var Fsn = (function () {
         refreshing = true; id('app-status').textContent = '更新中…';
         Data.refresh(function (error) { refreshing = false; id('app-status').textContent = error ? Util.message(error) : ''; if (error) { ErrorStore.add('データ更新', Util.message(error)); } render(); });
     }
-    function lock() {
+    function lock(message) {
         if (Data.busy()) { toast('保存処理が終わってからロックしてください。'); return; }
         var user = Session.user(); if (user) { id('login-id').value = user.userId; }
-        Session.clear(); Data.reset(); editor = null; refreshing = false; close(true);
+        Auth.cancelReset();
+        id('login-error').textContent = typeof message === 'string' ? message : 'ロックしました。パスワードを入力してください。';
+        Session.logout(function (error) { if (error) { ErrorStore.add('ロック・ログアウト', Util.message(error), '画面は閉じました。端末保存の削除またはサーバー失効に失敗した可能性があります。'); if (!Session.user()) { id('login-error').textContent = '画面を閉じましたが、保存解除の確認に失敗しました。エラー詳細を確認してください。'; } } });
+        Data.reset(); editor = null; refreshing = false; close(true);
         id('application').style.display = 'none'; id('login-screen').style.display = 'flex';
-        id('login-password').value = ''; id('register-confirm').value = ''; id('register').checked = false; id('registration-fields').style.display = 'none';
+        id('login-password').value = ''; id('register-confirm').value = ''; id('register').checked = false; id('remember-device').checked = false; id('registration-fields').style.display = 'none';
         /* Remove decrypted DOM content, not just its visibility. */
         ['sticky-board', 'inbox-list', 'sent-list', 'sns-list', 'task-list', 'notification-list', 'user-list', 'global-search-results', 'audit-list', 'trash-list'].forEach(function (x) { id(x).innerHTML = ''; });
-        id('login-error').textContent = 'ロックしました。パスワードを入力してください。'; id('login-password').focus();
+        id('login-password').focus();
+    }
+    function enterApplication() {
+        Data.reset(); id('login-screen').style.display = 'none'; id('application').style.display = 'block'; id('login-error').textContent = '';
+        archived = false; tab('stickies'); refresh();
+        if (Session.rememberWarning()) { toast(Session.rememberWarning()); }
     }
     function download(filename, content, type) {
         var blob = new Blob([content], { type: type }), url, a;
@@ -110,6 +107,7 @@ var Fsn = (function () {
     }
     function csv(value) { value = String(value == null ? '' : value); if (/^[\s]*[=+@-]/.test(value) || /^[\t\r\n]/.test(value)) { value = "'" + value; } return '"' + value.replace(/"/g, '""') + '"'; }
     function init() {
+        if (window.location.hash === '#admin') { return; }
         if (initialized) { return; } initialized = true;
         var compatible = checkBrowserCompatibility(), tabs = document.querySelectorAll('.nav-tab'), i;
         id('login-mode').textContent = APP_CONFIG.USE_SHAREPOINT ? 'SharePointにログイン済みのアカウントを使用します。' : '端末内モード：このブラウザ内でのみ共有されます。';
@@ -118,20 +116,42 @@ var Fsn = (function () {
         id('login-button').disabled = !compatible;
         try { id('login-id').value = Storage.get('fsn_remember_id', ''); id('remember-id').checked = !!id('login-id').value; } catch (e) { id('login-error').textContent = Util.message(e); }
         bind('register', function () { id('registration-fields').style.display = this.checked ? 'block' : 'none'; });
+        bind('forgot-password', function () { var help = id('password-help'); help.style.display = help.style.display === 'none' ? 'block' : 'none'; });
         bind('login-errors', function () { id('login-diagnostics').textContent = ErrorStore.all().map(function (r) { return r.source + '：' + r.message + '\n' + r.detail; }).join('\n\n') || 'エラーはありません。'; });
         id('login-form').onsubmit = function (event) {
             event.preventDefault(); if (id('login-button').disabled) { return; }
-            var input = { id: id('login-id').value, password: id('login-password').value, register: id('register').checked, name: id('register-name').value, organization: id('register-org').value, confirm: id('register-confirm').value };
+            var input = { id: id('login-id').value, password: id('login-password').value, remember: id('remember-device').checked, register: id('register').checked, name: id('register-name').value, organization: id('register-org').value, confirm: id('register-confirm').value };
             id('login-button').disabled = true; id('login-error').textContent = '認証・暗号鍵を確認しています…';
             window.setTimeout(function () {
-                Auth.login(input, function (error) {
+                Auth.login(input, function (error, outcome) {
                     input.password = ''; input.confirm = ''; id('login-password').value = ''; id('register-confirm').value = ''; id('login-button').disabled = false;
                     if (error) { ErrorStore.add('ログイン', Util.message(error)); id('login-error').textContent = Util.message(error); return; }
+                    if (outcome && outcome.requirePasswordChange) {
+                        Data.reset(); id('application').style.display = 'none';
+                        id('login-form').style.display = 'none'; id('password-change-form').style.display = 'block';
+                        id('new-password').value = ''; id('new-password-confirm').value = ''; id('password-change-error').textContent = '';
+                        id('new-password').focus(); return;
+                    }
                     try { if (id('remember-id').checked) { Storage.set('fsn_remember_id', id('login-id').value); } else { Storage.remove('fsn_remember_id'); } } catch (e) { ErrorStore.add('設定保存', Util.message(e)); }
-                    Data.reset(); id('login-screen').style.display = 'none'; id('application').style.display = 'block'; id('login-error').textContent = '';
-                    archived = false; tab('stickies'); refresh();
+                    enterApplication();
                 });
             }, 30);
+        };
+        function closePasswordChange() {
+            Auth.cancelReset(); id('new-password').value = ''; id('new-password-confirm').value = '';
+            id('password-change-form').style.display = 'none'; id('login-form').style.display = 'block';
+            id('login-password').value = ''; id('login-password').focus();
+        }
+        bind('password-change-cancel', closePasswordChange);
+        id('password-change-form').onsubmit = function (event) {
+            event.preventDefault(); if (id('password-change-save').disabled) { return; }
+            id('password-change-save').disabled = true; id('password-change-cancel').disabled = true;
+            id('password-change-error').textContent = '秘密鍵を保護し直しています…';
+            Auth.completeReset(id('new-password').value, id('new-password-confirm').value, function (error) {
+                id('password-change-save').disabled = false; id('password-change-cancel').disabled = false;
+                if (error) { id('password-change-error').textContent = Util.message(error); return; }
+                closePasswordChange(); id('login-error').textContent = 'パスワードを変更しました。新しいパスワードでログインしてください。';
+            });
         };
         for (i = 0; i < tabs.length; i += 1) { tabs[i].onclick = function () { tab(this.getAttribute('data-tab')); }; }
         bind('new-note', function () { open(null, 'personal'); }); bind('send-note', function () { open(null, 'send'); }); bind('new-task', function () { open(null, 'task'); });
@@ -145,8 +165,8 @@ var Fsn = (function () {
             if (versions[index]) { var row = editor.row, mode = editor.mode; open(row, mode, versions[index]); toast('履歴を読み込みました。「保存する」で確定します。'); }
         });
         var inserts = document.querySelectorAll('[data-insert]');
-        for (i = 0; i < inserts.length; i += 1) { inserts[i].onclick = function () { if (!editor || editor.mode === 'read') { return; } var field = id('note-content'), start = field.selectionStart || 0, end = field.selectionEnd || start, selected = field.value.substring(start, end), type = this.getAttribute('data-insert'), text = type === 'bold' ? '<strong>' + (selected || '太字') + '</strong>' : type === 'table' ? '<table><tr><td>項目</td><td>内容</td></tr></table>' : '\n[ ] 項目'; field.value = field.value.substring(0, start) + text + field.value.substring(end); field.focus(); }; }
-        bind('lock-button', lock); bind('logout-button', function () { if (Data.busy()) { toast('保存処理をお待ちください。'); return; } Session.logout(function (error) { lock(); if (error) { ErrorStore.add('ログアウト', Util.message(error), '端末の秘密鍵は破棄しました。サーバー側の失効確認は未完了です。'); } }); });
+        for (i = 0; i < inserts.length; i += 1) { inserts[i].onclick = function () { if (!editor || editor.mode === 'read') { return; } NoteEditor.insert(this.getAttribute('data-insert')); }; }
+        bind('lock-button', function () { lock(); }); bind('logout-button', function () { lock('ログアウトしました。自動ログインの保存を解除しました。'); });
         bind('archive-toggle', function () { archived = !archived; this.textContent = archived ? '通常表示' : 'アーカイブ'; render(); });
         bind('inbox-filter', function () { unread = !unread; this.textContent = unread ? 'すべて表示' : '未読のみ'; render(); });
         bind('align-notes', function () {
@@ -164,6 +184,11 @@ var Fsn = (function () {
         id('search-input').oninput = render; id('user-search').oninput = Views.users; id('global-search-input').oninput = Views.search; id('task-filter').onchange = Views.tasks;
         bind('clear-errors', function () { ErrorStore.clear(); renderErrors(); });
         bind('refresh-data', refresh);
+        bind('forget-device', function () {
+            if (Data.busy()) { toast('保存処理をお待ちください。'); return; }
+            this.disabled = true;
+            Session.forgetDevice(function (error) { id('forget-device').disabled = false; if (error) { result(error); return; } id('remember-device').checked = false; render(); toast('自動ログインを解除しました。次回はパスワードが必要です。'); });
+        });
         bind('save-profile', function () { if (Data.busy()) { return; } Auth.updateProfile(id('profile-name').value, id('profile-org').value, function (error, warning) { if (error) { result(error); return; } refresh(); toast(warning ? 'プロフィールは保存済み。部署同期はエラー一覧を確認してください。' : 'プロフィールを保存しました'); }); });
         bind('sync-group', function () { Session.guard(function (e) { if (e) { result(e); return; } Auth.syncGroup(result); }); });
         bind('check-sharepoint', function () { if (!APP_CONFIG.USE_SHAREPOINT) { toast('現在は端末内モードです。'); return; } this.disabled = true; SharePointSetup.check(function (failures) { id('check-sharepoint').disabled = false; toast(failures.length ? failures.length + '件の問題があります。エラー一覧を確認してください。' : '列名と列型を確認しました。権限・一意制約は管理者が確認してください。'); }); });
@@ -183,7 +208,7 @@ var Fsn = (function () {
             else if (event.ctrlKey && key === 78) { event.preventDefault(); open(null, 'personal'); }
             else if (key === 27 && editor) { event.preventDefault(); close(); }
             else if (key === 9 && editor) {
-                var focusable = id('editor-modal').querySelectorAll('input,textarea,select,button'), visible = [], k;
+                var focusable = id('editor-modal').querySelectorAll('input,textarea,select,button,[role="textbox"]'), visible = [], k;
                 for (k = 0; k < focusable.length; k += 1) { if (!focusable[k].disabled && focusable[k].offsetWidth) { visible.push(focusable[k]); } }
                 if (event.shiftKey && document.activeElement === visible[0]) { event.preventDefault(); visible[visible.length - 1].focus(); }
                 else if (!event.shiftKey && document.activeElement === visible[visible.length - 1]) { event.preventDefault(); visible[0].focus(); }
@@ -191,6 +216,15 @@ var Fsn = (function () {
         });
         window.setInterval(function () { if (!Session.user() || Data.busy()) { return; } var token = Session.token(); Session.guard(function (e) { if (e && token === Session.token()) { ErrorStore.add('セッション', Util.message(e)); lock(); } }); }, Math.max(5000, Number(APP_CONFIG.SESSION_CHECK_INTERVAL) || 15000));
         window.setInterval(refresh, Math.max(15000, Number(APP_CONFIG.MESSAGE_INTERVAL) || 30000));
+        if (compatible && !Session.user()) {
+            id('login-button').disabled = true; id('login-error').textContent = '保存されたログイン情報を確認しています…';
+            Session.restore(function (error, user) {
+                id('login-button').disabled = false;
+                if (error) { ErrorStore.add('自動ログイン', Util.message(error)); id('login-error').textContent = Util.message(error); return; }
+                id('login-error').textContent = '';
+                if (user) { enterApplication(); }
+            });
+        }
     }
     document.addEventListener('DOMContentLoaded', init);
     return { tab: tab, open: open, close: close, save: save, remove: remove, updateNote: updateNote, result: result, render: render, toast: toast, esc: Util.esc, note: note, archived: function () { return archived; }, unreadOnly: function () { return unread; }, lock: lock, csv: csv, init: init };

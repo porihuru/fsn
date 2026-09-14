@@ -1,19 +1,22 @@
 var StickyApp = (function () {
     function content(text, id) {
-        return String(text || '').split('\n').map(function (line, i) {
+        /* Normalize the whole fragment first: splitting raw HTML breaks tables. */
+        return NoteMarkup.normalize(text).split('\n').map(function (line, i) {
             var match = /^\[([ xX])\]\s*(.*)$/.exec(line);
             if (match) { return '<label class="note-check"><input type="checkbox" data-line="' + i + '" data-note="' + id + '"' + (match[1].toLowerCase() === 'x' ? ' checked' : '') + '><span>' + sanitizeHtml(match[2]) + '</span></label>'; }
-            return sanitizeHtml(line);
+            return line;
         }).join('<br>');
     }
     function number(value, fallback, max) { value = Number(value); return isFinite(value) ? Math.min(max, Math.max(0, value)) : fallback; }
     function render() {
         var board = document.getElementById('sticky-board'), query = document.getElementById('search-input').value.toLowerCase(), extent = 510;
         var rows = Data.state().notes.filter(function (r) { return r.NoteType === 'PERSONAL' && !r.Deleted && r.SenderUserId === Session.user().userId && !!r.Archived === Fsn.archived(); });
-        board.innerHTML = rows.filter(function (r) { return (r.value.title + r.value.content).toLowerCase().indexOf(query) !== -1; }).map(function (row) {
+        /* Render saved layers as compact ranks; old layers above 999 must not tie. */
+        rows.sort(function (a, b) { return (Number(a.value.zIndex) || 0) - (Number(b.value.zIndex) || 0) || a.Id - b.Id; });
+        board.innerHTML = rows.filter(function (r) { return (r.value.title + r.value.content).toLowerCase().indexOf(query) !== -1; }).map(function (row, index) {
             var n = row.value, left = number(n.x, 30, 5000), top = number(n.y, 30, 10000), height = n.minimized ? 80 : Math.max(150, number(n.height, 180, 1500));
             extent = Math.max(extent, top + height + 100);
-            return '<article class="sticky-note ' + Util.color(n.color) + (n.pinned ? ' pinned' : '') + '" data-id="' + row.Id + '" style="left:' + left + 'px;top:' + top + 'px;width:' + Math.max(240, number(n.width, 250, 1500)) + 'px;min-height:' + height + 'px;z-index:' + number(n.zIndex, 1, 999) + '"><div class="note-actions">' +
+            return '<article class="sticky-note ' + Util.color(n.color) + (n.pinned ? ' pinned' : '') + '" data-id="' + row.Id + '" style="left:' + left + 'px;top:' + top + 'px;width:' + Math.max(240, number(n.width, 250, 1500)) + 'px;min-height:' + height + 'px;z-index:' + (index + 1) + '"><div class="note-actions">' +
                 '<button data-action="edit">編集</button><button data-action="delete" title="ゴミ箱">×</button><button data-action="minimized" title="最小化">−</button><button data-action="pinned" title="位置を固定">◆</button><button data-action="archived" title="アーカイブ">□</button></div><h3>' + Util.esc(n.title) + '</h3>' +
                 '<div class="note-body"' + (n.minimized ? ' style="display:none"' : '') + '>' + content(n.content, row.Id) + (n.due ? '<small class="note-due">' + Util.esc(n.due) + '</small>' : '') + '</div>' + (!n.pinned && !n.minimized ? '<span class="resize-handle" title="サイズ変更"></span>' : '') + '</article>';
         }).join('') || '<div class="empty-state">該当する付箋はありません。</div>';
@@ -33,7 +36,7 @@ var StickyApp = (function () {
         }
         for (i = 0; i < checks.length; i += 1) {
             checks[i].onclick = function () {
-                var value = Util.clone(row.value), lines = value.content.split('\n'), line = +this.getAttribute('data-line');
+                var value = Util.clone(row.value), lines = NoteMarkup.normalize(value.content).split('\n'), line = +this.getAttribute('data-line');
                 lines[line] = '[' + (this.checked ? 'x' : ' ') + ']' + lines[line].substring(3); value.content = lines.join('\n'); Fsn.updateNote(row, value);
             };
         }
@@ -53,7 +56,7 @@ var StickyApp = (function () {
             document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); window.removeEventListener('blur', up);
             if (!moved || token !== Session.token()) { return; }
             var value = Util.clone(row.value);
-            if (resize) { value.width = card.offsetWidth; value.height = card.offsetHeight; } else { value.x = parseInt(card.style.left, 10); value.y = parseInt(card.style.top, 10); value.zIndex = Math.min(999, Math.max.apply(null, Data.state().notes.map(function (r) { return Number(r.value.zIndex) || 1; }).concat([1])) + 1); }
+            if (resize) { value.width = card.offsetWidth; value.height = card.offsetHeight; } else { value.x = parseInt(card.style.left, 10); value.y = parseInt(card.style.top, 10); value.zIndex = Data.nextNoteLayer(); }
             Fsn.updateNote(row, value);
         }
         document.addEventListener('mousemove', move); document.addEventListener('mouseup', up); window.addEventListener('blur', up);

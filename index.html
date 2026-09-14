@@ -21,12 +21,51 @@
 <label>パスワード確認<input id="register-confirm" type="password" autocomplete="new-password"></label>
 </div>
 <label class="remember"><input id="remember-id" type="checkbox"> この端末にユーザーIDを記憶する</label>
+<label class="remember"><input id="remember-device" type="checkbox" aria-describedby="remember-device-warning"> この端末では次回からパスワード不要（30日間）</label>
+<p id="remember-device-warning" class="login-note">自分専用の端末でのみ使用してください。同じブラウザを使える人もログインできます。ロック・ログアウトで保存を解除します。</p>
 <button class="primary full" id="login-button" type="submit">ログイン</button>
-<p class="login-note">秘密鍵を端末へ平文保存しないため、再読み込み・ロック解除時にはパスワードが必要です。新規登録の暗号鍵生成には時間がかかります。</p>
+<p class="login-note">パスワード自体は保存しません。自動ログインを選んだ場合はログイン情報と復号に必要な情報をこのブラウザに保存します。新規登録の暗号鍵生成には時間がかかります。</p>
+<button type="button" id="forgot-password" class="text-button">パスワードを忘れた場合</button>
+<div id="password-help" class="login-note" style="display:none" role="note">
+<p>管理者へ本人確認とパスワード初期化を依頼してください。受け取った仮パスワードは24時間有効です。ログイン後、新しいパスワードへの変更が必要です。</p>
+<p>管理者復旧が未登録のままパスワードと利用できる端末を失うと、過去の付箋は復号できません。利用者の削除・再登録はしないでください。</p>
+</div>
+<p><a href="admin.html">管理者用：パスワード初期化</a></p>
 <button type="button" id="login-errors" class="text-button">エラー詳細</button>
 <pre id="login-diagnostics"></pre>
 </form>
+<form id="password-change-form" class="login-card" style="display:none">
+<h1>パスワードの変更</h1><p>仮パスワードでは付箋を開けません。自分だけが知る新しいパスワードを設定してください。</p>
+<p id="password-change-error" class="login-error" role="alert"></p>
+<label>新しいパスワード（10文字以上）<input id="new-password" type="password" autocomplete="new-password"></label>
+<label>新しいパスワードの確認<input id="new-password-confirm" type="password" autocomplete="new-password"></label>
+<button id="password-change-save" class="primary full" type="submit">変更する</button><button id="password-change-cancel" class="text-button" type="button">ログイン画面へ戻る</button>
+</form>
 </section>
+<main id="admin-root" class="admin-page" style="display:none">
+<h1>管理者によるパスワード初期化</h1><p><a href="index.html">ログイン画面へ戻る</a></p>
+<p id="admin-status" role="status">管理者権限を確認しています…</p>
+<p class="login-error" id="admin-error" role="alert"></p>
+<p id="admin-storage-note"></p>
+<section class="settings-card" id="admin-reset-panel" style="display:none">
+<h2>本人確認後に仮パスワードを発行</h2>
+<p>対象の利用者を選び、登録した管理者パスワードを入力してください。復旧鍵は自動で読み込みます。</p>
+<form id="admin-reset-form">
+<label>対象の利用者（名前・部署・ID）<select id="reset-user-id"><option value="">利用者を選択してください</option></select></label>
+<label>管理者パスワード<input id="admin-key-password" type="password" autocomplete="off"></label>
+<button id="admin-reset-submit" class="primary" type="submit">仮パスワードを発行</button>
+</form>
+<div id="admin-reset-result" style="display:none" role="status"><p id="admin-result-target"></p><label>本人へ安全な別経路で渡す仮パスワード<input id="temporary-password" type="text" readonly autocomplete="off"></label><p id="temporary-expires"></p><p>本人はこの仮パスワードでログイン後、必ず変更してください。仮パスワードだけでは通常画面は開きません。</p></div>
+<button id="admin-clear" class="secondary" type="button">パスワードの表示を消去</button>
+</section>
+<section class="settings-card" id="admin-setup-panel" style="display:none">
+<h2>管理者パスワードの登録（初回のみ）</h2>
+<p>パスワードを登録すれば設定完了です。復旧鍵は自動生成し、パスワードで暗号化して保存します。ファイル操作は不要です。管理者パスワードを忘れると初期化できないため、責任者が大切に保管してください。</p>
+<form id="admin-key-form"><label>管理者パスワード（12文字以上）<input id="setup-password" type="password" autocomplete="new-password"></label><label>確認<input id="setup-confirm" type="password" autocomplete="new-password"></label><button id="generate-admin-key" class="primary" type="submit">登録する</button></form>
+<button id="admin-setup-clear" class="secondary" type="button">入力を消去</button>
+</section>
+<p>復旧が未登録の利用者を初期化するために、新しい利用者鍵を作ることはありません。データを保持して確認してください。</p>
+</main>
 <div id="application" style="display:none">
 <header class="topbar">
 <div class="brand"><span class="brand-mark">▦</span>社内付箋</div>
@@ -69,6 +108,7 @@
 <button id="save-profile" class="primary">プロフィール保存</button><button id="sync-group" class="secondary">部署の再同期</button>
 <button id="check-sharepoint" class="secondary">SharePointリスト診断（読み取りのみ）</button>
 <button id="refresh-data" class="secondary">データを更新</button>
+<p id="trusted-device-status"></p><button id="forget-device" class="secondary">この端末の自動ログインを解除</button>
 <p>旧形式の端末データは消去せず保持しています。所有者不明のため自動では取り込みません。</p>
 <button id="export-legacy" class="secondary">旧データのバックアップ</button><button id="import-legacy" class="secondary">自分の旧付箋を取り込む</button>
 </div></section>
@@ -79,16 +119,19 @@
 <div class="modal"><div class="modal-head"><h2 id="editor-title">新しい付箋</h2><button id="editor-close" class="close" aria-label="閉じる">×</button></div>
 <label id="recipient-label" style="display:none">送信先（カンマ区切り、#部署名・@利用者ID）<input id="note-recipient" list="recipient-users"></label><datalist id="recipient-users"></datalist>
 <label>タイトル<input id="note-title" maxlength="200"></label>
-<label>本文<textarea id="note-content" rows="7" maxlength="20000"></textarea></label>
-<div id="editor-toolbar"><button data-insert="check" class="secondary">チェックリスト</button><button data-insert="bold" class="secondary">太字</button><button data-insert="table" class="secondary">表</button></div>
+<label id="note-content-label">本文</label>
+<div id="note-content" class="note-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="note-content-label" aria-describedby="note-content-help note-content-status" tabindex="0"></div>
+<p id="note-content-help" class="editor-help">表はセルをクリックして入力できます。Tabで次のセルへ移動します。</p>
+<p id="note-content-status" class="login-error" role="status"></p>
+<div id="editor-toolbar" role="toolbar" aria-label="本文の編集"><button type="button" data-insert="check" class="secondary">チェックリスト</button><button type="button" data-insert="bold" class="secondary">太字</button><button type="button" data-insert="table" class="secondary">表</button><button type="button" data-insert="row" class="secondary">行追加</button><button type="button" data-insert="column" class="secondary">列追加</button><button type="button" data-insert="remove-table" class="secondary">表削除</button></div>
 <div class="form-row"><label>色<select id="note-color"><option value="yellow">黄色</option><option value="blue">青</option><option value="pink">ピンク</option><option value="lavender">紫</option></select></label><label>期限<input id="note-due" type="text" placeholder="YYYY-MM-DD" maxlength="10"></label></div>
 <label id="task-state-label" style="display:none">状態<select id="task-state"><option>未着手</option><option>対応中</option><option>保留</option><option>完了</option></select></label>
 <div class="modal-actions"><button id="note-history" class="secondary">変更履歴</button><button id="note-to-task" class="secondary">タスク化</button><button id="editor-copy" class="secondary">コピー</button><button id="editor-cancel" class="secondary">キャンセル</button><button id="editor-save" class="primary">保存する</button></div>
 </div></div>
 <div id="toast" class="toast" role="status"></div>
-<script src="js/config.js"></script><script src="js/common.js"></script><script src="js/storage.js"></script>
+<script src="js/config.js"></script><script src="js/recovery-config.js"></script><script src="js/common.js"></script><script src="js/note-editor.js"></script><script src="js/storage.js"></script>
 <script src="js/errors.js"></script><script src=".vendor/package/dist/forge.min.js"></script><script src="js/crypto.js"></script>
-<script src="js/crypto-jobs.js"></script><script src="js/sharepoint.js"></script><script src="js/session.js"></script><script src="js/auth.js"></script>
+<script src="js/crypto-jobs.js"></script><script src="js/sharepoint.js"></script><script src="js/recovery.js"></script><script src="js/trusted-device.js"></script><script src="js/session.js"></script><script src="js/auth.js"></script>
 <script src="js/data.js"></script><script src="js/sticky.js"></script><script src="js/views.js"></script>
-<script src="js/app.js"></script>
+<script src="js/admin.js"></script><script src="js/app.js"></script>
 </body></html>

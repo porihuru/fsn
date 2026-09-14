@@ -35,8 +35,8 @@ var Views = (function () {
             var card = this.parentNode, action = this.getAttribute('data-action'), row, text, value;
             while (!card.getAttribute('data-post')) { card = card.parentNode; }
             row = find('posts', card.getAttribute('data-post'));
-            if (action === 'open') { Fsn.open(null, 'read', { title: row.Category, content: row.value.body, color: 'lavender' }); Data.view(row, Fsn.result); }
-            if (action === 'copy') { Fsn.open(null, 'personal', { title: row.Category, content: row.value.body, color: 'lavender' }); }
+            if (action === 'open') { Fsn.open(null, 'read', { title: row.Category, content: Util.esc(row.value.body), color: 'lavender' }); Data.view(row, Fsn.result); }
+            if (action === 'copy') { Fsn.open(null, 'personal', { title: row.Category, content: Util.esc(row.value.body), color: 'lavender' }); }
             if (action === 'like') { Data.react(row, 'LIKE', Fsn.result); }
             if (action === 'vote') { Data.react(row, 'VOTE:' + this.getAttribute('data-option'), Fsn.result); }
             if (action === 'comment') { text = window.prompt('コメント（メンションは @利用者ID）', ''); if (text !== null) { Data.comment(row, text, Fsn.result); } }
@@ -68,7 +68,7 @@ var Views = (function () {
     function search() {
         var query = Util.trim(document.getElementById('global-search-input').value).toLowerCase(), html = [];
         if (!query) { set('global-search-results', '<p>検索語を入力してください。</p>'); return; }
-        Data.state().notes.filter(function (r) { return !r.Deleted; }).forEach(function (r) { if ((r.value.title + ' ' + r.value.content).toLowerCase().indexOf(query) !== -1) { html.push('<div class="notification-row"><div><strong>' + Util.esc(r.NoteType + '：' + r.value.title) + '</strong><p>' + Util.esc(r.value.content) + '</p></div></div>'); } });
+        Data.state().notes.filter(function (r) { return !r.Deleted; }).forEach(function (r) { var text = NoteMarkup.plain(r.value.content); if ((r.value.title + ' ' + text).toLowerCase().indexOf(query) !== -1) { html.push('<div class="notification-row"><div><strong>' + Util.esc(r.NoteType + '：' + r.value.title) + '</strong><p>' + Util.esc(text) + '</p></div></div>'); } });
         Data.state().posts.forEach(function (r) { if ((r.Category + ' ' + r.value.body).toLowerCase().indexOf(query) !== -1) { html.push('<div class="notification-row"><div><strong>SNS：' + Util.esc(r.Category) + '</strong><p>' + Util.esc(r.value.body) + '</p></div></div>'); } });
         set('global-search-results', html.join(''));
     }

@@ -45,7 +45,7 @@ test('login requires explicit registration; profile, legacy-safe ID, password an
   await assert.rejects(call(w.Auth,'login',{id:'alice',password:'wrong'}), /パスワード/);
   w.Fsn.open(null,'personal',note()); w.Fsn.lock();
   assert.equal(w.Session.user(),null); assert.throws(() => w.Session.key());
-  assert.equal(w.document.getElementById('note-content').value,'');
+  assert.equal(w.document.getElementById('note-content').innerHTML,'');
   assert.equal(w.document.getElementById('application').style.display,'none');
   c.close();
 });
@@ -130,7 +130,7 @@ test('SNS identity, votes, copy, comments and views use stable IDs; hidden rende
   const c=app({init:true}), w=c.w; await addUser(w,'alice','同名'); await addUser(w,'bob','同名'); await login(w);
   await call(w.Data,'savePost',null,{body:'実際の投稿本文',category:'アンケート',options:['A','B']});
   let post=w.Data.state().posts[0]; w.Fsn.tab('sns'); assert.equal(w.Data.state().views.length,0);
-  w.document.querySelector('[data-action="copy"]').click(); assert.equal(w.document.getElementById('note-content').value,'実際の投稿本文'); w.Fsn.close();
+  w.document.querySelector('[data-action="copy"]').click(); assert.equal(w.NoteEditor.get(),'実際の投稿本文'); w.Fsn.close();
   await call(w.Data,'react',post,'VOTE:0'); await call(w.Data,'react',post,'VOTE:1');
   assert.equal(w.Data.state().reactions.length,1); assert.equal(w.Data.state().reactions[0].ReactionType,'VOTE:1');
   await call(w.Data,'view',post); await call(w.Data,'view',post); assert.equal(w.Data.state().views.length,1); assert.equal(w.Data.state().views[0].ViewCount,2);
