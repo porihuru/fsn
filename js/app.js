@@ -33,7 +33,9 @@ var Fsn = (function () {
         if (!Session.user() || Data.busy()) { return; }
         mode = mode || (row && row.NoteType === 'TASK' ? 'task' : row && row.NoteType === 'DIRECT' ? 'read' : 'personal');
         var value = Util.clone(initial || row && row.value || { title: '', content: '', color: 'yellow', due: '', x: 30, y: 30, width: 250, height: 180 });
-        editor = { row: row || null, mode: mode, value: value };
+        var showTitle = mode === 'task' || mode === 'post' || mode === 'read' && !row;
+        editor = { row: row || null, mode: mode, value: value, showTitle: showTitle };
+        id('note-title-label').style.display = showTitle ? 'block' : 'none';
         returnFocus = document.activeElement;
         id('note-title').value = value.title || ''; NoteEditor.set(value.content || '', mode === 'read'); id('note-color').value = Util.color(value.color); id('note-due').value = value.due || ''; id('task-state').value = value.status || '未着手';
         id('note-recipient').value = ''; id('recipient-label').style.display = mode === 'send' ? 'block' : 'none';
@@ -50,7 +52,7 @@ var Fsn = (function () {
         id('note-to-task').style.display = mode === 'personal' ? '' : 'none';
         id('editor-forward').style.display = row ? '' : 'none'; id('editor-post').style.display = row ? '' : 'none';
         id('note-history').style.display = mode !== 'read' && row && (value.versions || []).length ? '' : 'none';
-        id('editor-modal').className = 'modal-backdrop visible'; id('note-title').focus();
+        id('editor-modal').className = 'modal-backdrop visible'; id(showTitle ? 'note-title' : mode === 'send' ? 'note-recipient' : 'note-content').focus();
     }
     function close(force) {
         if (Data.busy() && !force) { toast('処理が終わるまでお待ちください。'); return; }
@@ -60,7 +62,7 @@ var Fsn = (function () {
     }
     function formValue() {
         var value = Util.clone(editor.value);
-        value.title = id('note-title').value; value.content = NoteEditor.get(); value.color = id('note-color').value; value.due = id('note-due').value;
+        value.title = editor.showTitle ? id('note-title').value : value.title || ''; value.content = NoteEditor.get(); value.color = id('note-color').value; value.due = id('note-due').value;
         if (editor.mode === 'task') { value.status = id('task-state').value; }
         return value;
     }
@@ -202,6 +204,13 @@ var Fsn = (function () {
             Data.savePost(null, { body: body, category: category, options: options, createdAt: new Date().toISOString() }, result);
         });
         bind('read-notifications', function () { Data.readNotifications(result); });
+        bind('empty-trash', function () {
+            if (!Session.user() || Data.busy()) { return; }
+            var rows = Data.trashRows(), token = Session.token();
+            if (!rows.length || !window.confirm('自分のゴミ箱にある付箋・タスク ' + rows.length + ' 件を削除しますか？\nこのアプリから復元できなくなります。')) { return; }
+            this.disabled = true;
+            Data.emptyTrash(rows.map(function (row) { return row.Id; }), function (error, message) { if (token === Session.token()) { result(error, message); } });
+        });
         id('search-input').oninput = render; id('user-search').oninput = Views.users; id('global-search-input').oninput = Views.search; id('task-filter').onchange = Views.tasks;
         bind('clear-errors', function () { ErrorStore.clear(); renderErrors(); });
         bind('refresh-data', refresh);

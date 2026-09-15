@@ -39,15 +39,16 @@ main{max-width:none;margin:0 auto;padding:8px 18px 16px}
 .sticky-note.blue{background:#ccecff}
 .sticky-note.pink{background:#ffd5d7}
 .sticky-note.lavender{background:#e4d8ff}
-.sticky-note h3{margin:0 0 13px;font-size:16px}
 .sticky-note p{line-height:1.7;margin:0;font-size:13px}
 .note-pin{position:absolute;top:9px;left:50%;width:9px;height:9px;border-radius:50%;background:#ef8c87;box-shadow:0 1px 2px rgba(0,0,0,0.200)}
 .note-actions{position:absolute;left:0;right:0;top:0;height:24px;display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-end;padding:0 6px;background:rgba(80,70,60,.08);border-radius:4px 4px 0 0;white-space:nowrap}
 .note-actions button{flex:0 0 auto;min-width:24px;height:22px;padding:0 4px;border:0;border-radius:3px;background:transparent;color:#625b55;font:inherit;font-size:12px;cursor:pointer}
 .note-actions button:hover{background:rgba(80,70,60,.12)}
 .note-drag-handle{flex:1 1 auto;min-width:14px;color:#625b55;font-size:14px;line-height:1;white-space:nowrap}
-.sticky-note>.note-actions,.sticky-note>h3,.sticky-note>.note-hidden-message{cursor:move}
-.sticky-note.pinned>.note-actions,.sticky-note.pinned>h3,.sticky-note.pinned>.note-hidden-message{cursor:default}
+.sticky-note>.note-actions,.sticky-note>.note-hidden-message{cursor:move}
+.sticky-note.pinned>.note-actions,.sticky-note.pinned>.note-hidden-message{cursor:default}
+.note-actions>button,.note-actions>.note-drag-handle{opacity:0}
+.sticky-note:hover>.note-actions>*,.received-note:hover>.note-actions>*,.note-actions>button:focus{opacity:1}
 .note-actions [data-action="pinned"][aria-pressed="true"]{background:rgba(80,70,60,.14)}
 .note-visibility svg{vertical-align:middle;pointer-events:none}
 .note-actions .note-visibility[aria-pressed="true"]{background:rgba(80,70,60,.14)}
@@ -55,7 +56,6 @@ main{max-width:none;margin:0 auto;padding:8px 18px 16px}
 .inbox-card.received-note{position:relative;padding-top:32px}
 .received-note>.note-actions{margin:0;border-radius:13px 13px 0 0}
 .received-note>.received-preview{min-width:0}
-.received-preview h3{margin:0 0 8px;font-size:16px}
 .note-due{display:block;margin-top:15px;color:#8e817b}
 .empty-state{color:#969aaa;text-align:center;padding-top:190px;line-height:2}
 .inbox-list,.post-list,.notification-list,.task-list{max-width:880px}
@@ -147,7 +147,7 @@ main{padding:8px 12px 12px}
 .inbox-card,.post-head,.post-foot,.notification-row{gap:0;flex-wrap:wrap}.inbox-card>*,.post-head>*,.post-foot>*,.notification-row>*{margin-right:12px}
 .sticky-note{transform:none;transition:box-shadow .15s;overflow-wrap:break-word;word-wrap:break-word}
 .sticky-note:hover{transform:none}.sticky-note.pinned{box-shadow:0 0 0 3px rgba(97,87,220,.5)}
-.note-actions{opacity:1}.note-body{line-height:1.7;overflow-x:auto}.note-check{display:block}.note-check input{margin-right:6px}
+.note-body{line-height:1.7;overflow-x:auto}.note-check{display:block}.note-check input{margin-right:6px}
 .note-body table{border-collapse:collapse;max-width:100%}.note-body td,.note-body th{border:1px solid #aaa;padding:3px}
 .resize-handle{position:absolute;right:3px;bottom:3px;width:16px;height:16px;cursor:nwse-resize;border-right:2px solid #999;border-bottom:2px solid #999}
 .login-page{padding:30px 12px}.login-card{width:440px;max-width:100%;flex:0 1 440px}.brand.large{margin-bottom:22px}

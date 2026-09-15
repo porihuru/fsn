@@ -89,7 +89,7 @@ var Data = (function () {
     }
     function validateNote(value) {
         value.content = NoteMarkup.normalize(value.content);
-        if (!Util.trim(value.title) && !Util.trim(NoteMarkup.plain(value.content)) && !/<table>|<img /.test(value.content)) { throw new Error('タイトルまたは本文を入力してください。'); }
+        if (!Util.trim(value.title) && !Util.trim(NoteMarkup.plain(value.content)) && !/<table>|<img /.test(value.content)) { throw new Error('本文を入力するか、表・写真を追加してください。'); }
         if (String(value.title).length > 200) { throw new Error('タイトルは200文字以内で入力してください。'); }
         NoteMarkup.validate(value.content);
         if (!Util.date(value.due)) { throw new Error('期限は実在する日付を YYYY-MM-DD で入力してください。'); }
@@ -232,6 +232,49 @@ var Data = (function () {
             Util.each(state.notifications.filter(function (r) { return !r.IsRead && r.RecipientUserId === actor(); }), function (r, next) { Records.save(APP_CONFIG.LIST_NOTIFICATIONS, r, { IsRead: true }, next); }, finish);
         }, callback);
     }
+    function trashRows() {
+        var user = Session.user();
+        return state.notes.filter(function (row) { return user && row.SenderUserId === user.userId && (row.NoteType === 'PERSONAL' || row.NoteType === 'TASK') && row.Deleted && row.value.deleted && !row.value.purged; });
+    }
+    function emptyTrash(ids, callback) {
+        var count = 0, token = Session.token();
+        mutate('EMPTY_TRASH', function (finish) {
+            var available = trashRows(), seen = {}, rows = [], userId = actor();
+            if (!Array.isArray(ids) || !ids.length) { throw new Error('削除するゴミ箱の項目がありません。'); }
+            ids.forEach(function (id) {
+                var matches = available.filter(function (row) { return String(row.Id) === String(id); });
+                if (matches.length !== 1) { throw new Error('ゴミ箱の対象が変わりました。再読み込みして確認してください。'); }
+                if (!seen['$' + id]) { rows.push(matches[0]); seen['$' + id] = true; }
+            });
+            Util.each(rows, function (row, next) {
+                Records.get(APP_CONFIG.LIST_NOTES, row.Id, function (error, current) {
+                    if (error) { next(error); return; }
+                    var key, value, payload;
+                    try {
+                        if (token !== Session.token() || current.SenderUserId !== userId || current.NoteType !== row.NoteType || !current.Deleted) { throw new Error('対象またはログイン状態が変わったため削除を中止しました。'); }
+                        key = StickyCrypto.decryptRecipientKey(row.recipient.EncryptedNoteKey, Session.key());
+                        value = StickyCrypto.decryptJson(JSON.parse(current.EncryptedPayload), key);
+                        if (!value.deleted || value.purged) { throw new Error('対象はすでに復元または削除されています。'); }
+                        /* Retain the ID and keys, but discard content/history. This avoids ID reuse
+                         * and does not delete shared or historically referenced BLOB attachments. */
+                        payload = JSON.stringify(StickyCrypto.encryptJson({ purged: true, purgedAt: new Date().toISOString() }, key));
+                    } catch (e) { next(e); return; }
+                    Session.guard(function (guardError) {
+                        if (guardError || token !== Session.token()) { next(guardError || new Error('ログイン状態が変わりました。')); return; }
+                        Records.save(APP_CONFIG.LIST_NOTES, current, { EncryptedPayload: payload, Deleted: true, Archived: false }, function (saveError) {
+                            if (!saveError) { count += 1; } next(saveError);
+                        });
+                    });
+                });
+            }, function (error) { finish(error, count); });
+        }, function (error, warning) {
+            if (!error) { callback(null, warning || 'ゴミ箱を空にしました（' + count + '件）。'); return; }
+            if (token !== Session.token() || busy) { callback(error); return; }
+            refresh(function (refreshError) {
+                callback(new Error('ゴミ箱の処理を中断しました（削除確認済み ' + count + '件）。' + Util.message(error) + (refreshError ? ' 一覧の更新にも失敗しました。再読み込みして結果を確認してください。' : ' 一覧で残りの項目を確認してください。')));
+            });
+        });
+    }
     return { state: function () { return state; }, reset: reset, refresh: refresh, busy: function () { return busy; }, resolve: resolve, seal: seal, unseal: unseal, validateNote: validateNote,
-        nextNoteLayer: nextNoteLayer, saveNote: saveNote, readNote: readNote, savePost: savePost, comment: comment, react: react, view: view, readNotifications: readNotifications };
+        nextNoteLayer: nextNoteLayer, saveNote: saveNote, readNote: readNote, savePost: savePost, comment: comment, react: react, view: view, readNotifications: readNotifications, trashRows: trashRows, emptyTrash: emptyTrash };
 }());

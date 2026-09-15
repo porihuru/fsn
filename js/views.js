@@ -12,7 +12,7 @@ var Views = (function () {
         var user = Session.user().userId;
         set('inbox-list', Data.state().notes.filter(function (r) { return r.NoteType === 'DIRECT' && !r.Deleted && r.SenderUserId !== user && (!Fsn.unreadOnly() || !r.recipient.IsRead || !NoteVisibility.hidden(r)); }).map(function (r) {
             return '<div class="inbox-card received-note" data-received-note="' + r.Id + '"><div class="note-actions" role="group" aria-label="受信付箋の操作">' + NoteVisibility.button(r) + '</div><div class="received-preview">' +
-                (NoteVisibility.hidden(r) ? '<p class="note-hidden-message">内容を非表示中</p>' : '<h3>' + Util.esc(r.value.title) + '</h3><div class="note-body">' + NoteMarkup.html(r.value.content) + (r.value.due ? '<small class="note-due">' + Util.esc(r.value.due) + '</small>' : '') + '</div>') +
+                (NoteVisibility.hidden(r) ? '<p class="note-hidden-message">内容を非表示中</p>' : '<div class="note-body">' + NoteMarkup.html(r.value.content) + (r.value.due ? '<small class="note-due">' + Util.esc(r.value.due) + '</small>' : '') + '</div>') +
                 '<p>' + Util.esc(name(r.SenderUserId)) + ' から</p><small>' + (r.recipient.IsRead ? '既読 ' + Util.esc(r.recipient.ReadAt || '') : '未読') + '</small></div><button type="button" class="outline" data-note="' + r.Id + '" title="内容を表示して開く">開く</button></div>';
         }).join(''));
         bind('inbox-list', '[data-note]', function () { openNote(find('notes', this.getAttribute('data-note'))); });
@@ -69,7 +69,9 @@ var Views = (function () {
         bind('user-list', '[data-user]', function () { Fsn.open(null, 'send'); document.getElementById('note-recipient').value = '@' + this.getAttribute('data-user'); });
     }
     function trash() {
-        set('trash-list', Data.state().notes.filter(function (r) { return r.Deleted && r.value.deleted && r.SenderUserId === Session.user().userId; }).map(function (r) { return '<div class="inbox-card"><div><strong>' + (NoteVisibility.hidden(r) ? '内容を非表示中' : Util.esc(r.value.title)) + '</strong></div><button class="outline" data-restore="' + r.Id + '">復元</button></div>'; }).join(''));
+        var rows = Data.trashRows();
+        document.getElementById('empty-trash').disabled = Data.busy() || !rows.length;
+        set('trash-list', rows.map(function (r) { return '<div class="inbox-card"><div><strong>' + (NoteVisibility.hidden(r) ? '内容を非表示中' : Util.esc(r.value.title)) + '</strong></div><button class="outline" data-restore="' + r.Id + '"' + (Data.busy() ? ' disabled' : '') + '>復元</button></div>'; }).join(''));
         bind('trash-list', '[data-restore]', function () { var row = find('notes', this.getAttribute('data-restore')), value = Util.clone(row.value); value.deleted = false; Fsn.updateNote(row, value); });
     }
     function search() {

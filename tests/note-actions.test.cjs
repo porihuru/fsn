@@ -43,3 +43,36 @@ test('compact tinted action row includes labelled send/post arrows, including on
     assert.equal(w.Data.state().notes.length, 1); assert.equal(w.Data.state().posts.length, 0);
   } finally { c.close(); }
 });
+
+test('cards omit titles without erasing them; icons appear on hover or keyboard focus without hiding the drag strip', async () => {
+  const c = app({init:true}), w = c.w, d = w.document;
+  try {
+    await addUser(w, 'alice'); await addUser(w, 'bob'); await login(w);
+    const style = d.createElement('style');
+    // jsdom has no pointer hit testing; simulate the CSS hover state with a class.
+    style.textContent = fs.readFileSync(path.join(root, 'css/app.css'), 'utf8').replace(/:hover/g, '.test-hover');
+    d.head.appendChild(style);
+    await call(w.Data, 'saveNote', null, note('カードには出さないタイトル'), '', 'PERSONAL'); w.Fsn.tab('stickies');
+    let card = d.querySelector('.sticky-note');
+    assert.equal(card.querySelector('h3'), null); assert.doesNotMatch(card.innerHTML, /カードには出さないタイトル/);
+    assert.match(card.querySelector('.note-body').textContent, /本文 secret/);
+    const actions = card.querySelector('.note-actions'), edit = actions.querySelector('[data-action="edit"]');
+    assert.notEqual(w.getComputedStyle(actions).display, 'none'); assert.equal(w.getComputedStyle(actions).cursor, 'move');
+    for (const control of actions.children) assert.equal(w.getComputedStyle(control).opacity, '0');
+    card.classList.add('test-hover');
+    for (const control of actions.children) assert.equal(w.getComputedStyle(control).opacity, '1');
+    card.classList.remove('test-hover');
+    edit.focus(); assert.equal(w.getComputedStyle(edit).opacity, '1'); edit.blur();
+    assert.notEqual(d.activeElement, edit);
+    card.setAttribute('data-test-blurred', 'true'); // invalidate jsdom's computed-style cache after blur
+    assert.equal(w.getComputedStyle(edit).opacity, '0');
+    edit.click(); assert.equal(d.getElementById('note-title').value, 'カードには出さないタイトル'); w.Fsn.close();
+    await call(w.Data, 'saveNote', null, note('受信タイトル'), '@bob', 'DIRECT'); await login(w, 'bob'); w.Fsn.tab('inbox');
+    card = d.querySelector('.received-note'); const eye = card.querySelector('.note-visibility');
+    assert.equal(w.getComputedStyle(eye).opacity, '0'); card.classList.add('test-hover'); assert.equal(w.getComputedStyle(eye).opacity, '1');
+    eye.click(); card = d.querySelector('.received-note');
+    assert.equal(card.querySelector('h3'), null); assert.doesNotMatch(card.innerHTML, /受信タイトル/);
+    assert.match(card.querySelector('.note-body').textContent, /本文 secret/);
+    assert.equal(w.Data.state().notes[0].value.title, '受信タイトル');
+  } finally { c.close(); }
+});

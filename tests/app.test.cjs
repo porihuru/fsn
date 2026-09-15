@@ -80,7 +80,7 @@ test('button and Ctrl+S share validation; send cancel resets recipient; read-onl
   doc.getElementById('send-note').click(); doc.getElementById('note-recipient').value='@nobody'; doc.getElementById('editor-cancel').click();
   assert.ok(!doc.getElementById('editor-modal').className.includes('visible'));
   doc.getElementById('new-note').click(); assert.equal(doc.getElementById('note-recipient').value,'');
-  doc.getElementById('note-title').value='試験'; doc.getElementById('note-due').value='2026-02-30';
+  doc.getElementById('note-content').textContent='試験'; doc.getElementById('note-due').value='2026-02-30';
   doc.getElementById('editor-save').click(); assert.equal(w.Data.state().notes.length,0);
   doc.dispatchEvent(new w.KeyboardEvent('keydown',{ctrlKey:true,keyCode:83,bubbles:true})); assert.equal(w.Data.state().notes.length,0);
   doc.getElementById('note-due').value='2028-02-29'; doc.getElementById('editor-save').click(); assert.equal(w.Data.state().notes.length,1);

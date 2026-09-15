@@ -36,7 +36,7 @@ test('eye conceals title, body, photos, tables and due date without deleting the
     assert.ok(d.querySelector('#note-content img')); w.Fsn.save(); concealed(d.querySelector('.sticky-note'));
     d.querySelector('.sticky-note [data-action="minimized"]').click(); concealed(d.querySelector('.sticky-note'));
     eye(w).click();
-    assert.equal(d.querySelector('.sticky-note h3').textContent, before.title);
+    assert.equal(d.querySelector('.sticky-note h3'), null);
     assert.equal(d.querySelector('.note-body').style.display, 'none'); // separate minimize setting
     d.querySelector('.sticky-note [data-action="minimized"]').click();
     assert.ok(d.querySelector('.note-body img')); assert.ok(d.querySelector('.note-body table'));
@@ -75,7 +75,7 @@ test('received notes default to hidden, reveal marks read only once, and preview
     eye(w, '.received-note').click();
     assert.equal(w.Data.state().notes[0].recipient.IsRead, true);
     assert.ok(d.querySelector('.received-note img')); assert.ok(d.querySelector('.received-note table'));
-    assert.equal(d.querySelector('.received-note h3').textContent, '秘密タイトル');
+    assert.equal(d.querySelector('.received-note h3'), null);
     const readAt = w.Data.state().notes[0].recipient.ReadAt;
     await call(w.Data, 'refresh'); w.Fsn.render(); assert.ok(d.querySelector('.received-note img'));
     eye(w, '.received-note').click(); concealed(d.querySelector('.received-note'));

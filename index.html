@@ -101,7 +101,7 @@
 <section id="panel-tasks" class="tab-panel"><div class="page-head"><h1>タスク</h1><button id="new-task" class="primary">タスクを追加</button></div><label>表示 <select id="task-filter"><option value="">すべて</option><option>未着手</option><option>対応中</option><option>保留</option><option>完了</option></select></label><div id="task-list" class="task-list"></div></section>
 <section id="panel-users" class="tab-panel"><div class="page-head"><h1>ユーザー一覧</h1></div><label>名前・部署・IDで検索 <input id="user-search" type="search"></label><p>宛先は @利用者ID または #部署名で指定できます。同名の利用者はIDで区別します。</p><div id="user-list" class="inbox-list"></div></section>
 <section id="panel-search" class="tab-panel"><h1>全体検索</h1><input id="global-search-input" type="search" placeholder="検索語"><div id="global-search-results"></div></section>
-<section id="panel-trash" class="tab-panel"><h1>ゴミ箱</h1><div id="trash-list" class="inbox-list"></div></section>
+<section id="panel-trash" class="tab-panel"><div class="page-head"><h1>ゴミ箱</h1><button id="empty-trash" type="button" class="secondary" disabled>ゴミ箱を空にする</button></div><p>空にした付箋・タスクは、このアプリから復元できません。</p><div id="trash-list" class="inbox-list"></div></section>
 <section id="panel-audit" class="tab-panel"><div class="page-head"><h1>端末の操作履歴</h1><button id="audit-export" class="secondary">CSV出力</button></div><p>この利用者・端末の履歴です。改ざん防止の監査証跡ではありません。</p><div id="audit-list"></div></section>
 <section id="panel-settings" class="tab-panel"><h1>設定</h1><div class="settings-card">
 <label>名前<input id="profile-name" maxlength="100"></label><label>部署（半角英数字）<input id="profile-org" maxlength="64"></label>
@@ -120,7 +120,7 @@
 <label id="recipient-label" style="display:none">送信先（カンマ区切り、#部署名・@利用者ID）<input id="note-recipient" list="recipient-users"></label><datalist id="recipient-users"></datalist>
 <p id="editor-sharing-note" class="editor-help"></p>
 <label id="post-category-label" style="display:none">投稿の分類<input id="note-post-category" maxlength="100" value="共有"></label>
-<label>タイトル<input id="note-title" maxlength="200"></label>
+<label id="note-title-label" style="display:none">タイトル<input id="note-title" maxlength="200"></label>
 <label id="note-content-label">本文</label>
 <div id="note-content" class="note-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="note-content-label" aria-describedby="note-content-help note-content-status" tabindex="0"></div>
 <p id="note-content-help" class="editor-help">表はセルをクリックして入力できます。Tabで次のセルへ移動します。</p>

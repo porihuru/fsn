@@ -13,7 +13,7 @@ var StickyApp = (function () {
         while (target && target !== card) {
             /* Keep button clicks (including SVG icons) and body selection independent. */
             if (/^(BUTTON|INPUT|TEXTAREA|SELECT|LABEL|A)$/.test(target.tagName)) { return false; }
-            if (target.tagName === 'H3' || /(^|\s)(note-actions|note-drag-handle|note-hidden-message)(\s|$)/.test(target.getAttribute && target.getAttribute('class') || '')) { return true; }
+            if (/(^|\s)(note-actions|note-drag-handle|note-hidden-message)(\s|$)/.test(target.getAttribute && target.getAttribute('class') || '')) { return true; }
             target = target.parentNode;
         }
         return background;
@@ -28,7 +28,7 @@ var StickyApp = (function () {
             extent = Math.max(extent, top + height + 100);
             return '<article class="sticky-note ' + Util.color(n.color) + (n.pinned ? ' pinned' : '') + '" data-id="' + row.Id + '" style="left:' + left + 'px;top:' + top + 'px;width:' + Math.max(240, number(n.width, 250, 1500)) + 'px;min-height:' + height + 'px;z-index:' + (index + 1) + '"><div class="note-actions" role="group" aria-label="付箋の操作">' +
                 '<span class="note-drag-handle" title="' + (n.pinned ? '位置は固定中です（◆で解除）' : 'ここをドラッグして移動') + '" aria-hidden="true">⋮⋮</span><button type="button" data-action="edit">編集</button>' + NoteVisibility.button(row) + '<button type="button" data-action="forward" title="別のユーザーへ送る" aria-label="別のユーザーへ送る">→</button><button type="button" data-action="post" title="みんなの投稿へ投稿する" aria-label="みんなの投稿へ投稿する">↑</button><button type="button" data-action="delete" title="ゴミ箱" aria-label="ゴミ箱">×</button><button type="button" data-action="minimized" title="最小化" aria-label="最小化">−</button><button type="button" data-action="pinned" title="' + pinLabel + '" aria-label="' + pinLabel + '" aria-pressed="' + !!n.pinned + '">◆</button><button type="button" data-action="archived" title="アーカイブ" aria-label="アーカイブ">□</button></div>' +
-                (concealed ? '<p class="note-hidden-message">内容を非表示中</p>' : '<h3>' + Util.esc(n.title) + '</h3><div class="note-body"' + (n.minimized ? ' style="display:none"' : '') + '>' + content(n.content, row.Id) + (n.due ? '<small class="note-due">' + Util.esc(n.due) + '</small>' : '') + '</div>') + (!n.pinned && !n.minimized ? '<span class="resize-handle" title="サイズ変更"></span>' : '') + '</article>';
+                (concealed ? '<p class="note-hidden-message">内容を非表示中</p>' : '<div class="note-body"' + (n.minimized ? ' style="display:none"' : '') + '>' + content(n.content, row.Id) + (n.due ? '<small class="note-due">' + Util.esc(n.due) + '</small>' : '') + '</div>') + (!n.pinned && !n.minimized ? '<span class="resize-handle" title="サイズ変更"></span>' : '') + '</article>';
         }).join('') || '<div class="empty-state">該当する付箋はありません。</div>';
         board.style.height = extent + 'px';
         var cards = board.querySelectorAll('.sticky-note'), i;

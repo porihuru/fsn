@@ -35,10 +35,10 @@ test('full-width action strip moves visible, hidden and minimized notes and pers
   } finally { c.close(); }
 });
 
-test('drag grip, title, card background and concealed placeholder remain drag handles', async () => {
+test('drag grip, card background and concealed placeholder remain drag handles', async () => {
   const c = await setup(), w = c.w;
   try {
-    for (const selector of ['.note-drag-handle', '.sticky-note h3', '.sticky-note', '.note-hidden-message']) {
+    for (const selector of ['.note-drag-handle', '.sticky-note', '.note-hidden-message']) {
       const row = w.Data.state().notes[0];
       await call(w.Data, 'saveNote', row, {...note(), contentHidden:selector === '.note-hidden-message'}, '', 'PERSONAL'); w.Fsn.render();
       const target = w.document.querySelector(selector); assert.ok(target, selector); move(w, target);
